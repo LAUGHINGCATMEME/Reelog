@@ -1,3 +1,17 @@
+I made this since I couldn't find a proper logger/tracker for years!! I've been using yamtrack:https://github.com/FuzzyGrim/Yamtrack (really good, which everyone should try before touching this slop(I wouldn't call this slop at all but thats the convention)) but there are just lot of tiny details which irritates me. 
+I have tired: MAL, IMDB, Letterboxd, and there is just something about each which doesn't work for me, so I (ignore if I mention claude as 'I') made this app.
+
+This tracks: Anime, TV Seasons, and Movies
+The BEST PART - Or the reason I made this in the first palace: YOU CAN ADD MULTIPLE ENTRIES OF SAME TITLE. and, when watching a TV series or anime, you can have either 1 date per episode, or a range of episodes for a range of dates. 
+This just combines all the features I wanted a logger to have in one simple app. 
+This was a personal project, which I used to see what claude can do, and damn I am surprised by it. definitely exceed my expectations. I am uploading it here so jic if someone wants something similar, that person doesn't have to burn credits.
+
+to use it, download the apk form the releases, and put in the MAL and TMDB api key in settings, both are free.
+TMDB fetches data for Movies  and TV seasons, and MAL for Anime. 
+again, this was a side project, wont likely be maintained since I already am happy with all its capabilities. I'll let claude take over now.
+
+
+---
 # Reelog
 
 Log movies, TV episodes and anime: dates, episode ranges, ratings, statuses. Crimson-on-black theme, built from the Claude Design file `Reelog v2.dc.html`. Yamtrack compatible.
@@ -8,7 +22,6 @@ Log movies, TV episodes and anime: dates, episode ranges, ratings, statuses. Cri
 - **Statuses:** Watching, Planned, Completed, Paused and Dropped. Logging sets Watching or Completed automatically.
 - **Ratings:** 0–10 in half steps. Every rating starts as "No rating", and turning one on starts at 7.
 - **Library:** filter by status and genre, sort by recent, rating or A–Z, show as a list or a grid.
-- **Statistics:** activity over 12 months, time watched, statuses, ratings and top genres.
 
 ## Run
 
