@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Reelog</string>
+    <string name="title_activity_main">Reelog</string>
+    <string name="package_name">app.reelog</string>
+    <string name="custom_url_scheme">app.reelog</string>
+</resources>

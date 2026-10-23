@@ -1,0 +1,8 @@
+node_modules
+dist
+.env.local
+*.apk
+# personal data exports — never commit
+yamtrack_*.csv
+reelog-*.json
+*.tsbuildinfo
