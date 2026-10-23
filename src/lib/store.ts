@@ -8,7 +8,8 @@ const V1_KEY = 'reelog-v1';
 
 export const EMPTY_DATA: Data = { entries: [], meta: {}, status: {}, rates: {} };
 export const DEFAULT_SETTINGS: Settings = {
-  tmdbKey: import.meta.env.VITE_TMDB_KEY ?? '',
+  // Keys are only ever entered in the app and stay on the device; never bake them into a build.
+  tmdbKey: '',
   malKey: '',
   layout: 'list',
   rating: 'slider',

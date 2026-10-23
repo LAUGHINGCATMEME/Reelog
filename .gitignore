@@ -7,3 +7,7 @@ yamtrack_*.csv
 reelog-*.json
 *.tsbuildinfo
 MYDATA/
+
+# never commit secrets
+.env*
+*.key
