@@ -8,19 +8,28 @@ export const Icon = ({ name, className = '' }: { name: string; className?: strin
 
 /** Striped placeholder; the image fades in once it has loaded. */
 export function Poster({ src, size, className = '' }: { src?: string; size: 'sm' | 'md' | 'lg' | 'grid'; className?: string }) {
-  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
-  useEffect(() => setState('loading'), [src]);
+  // Track which URL loaded/failed rather than resetting on mount: a cached image can finish
+  // loading before effects run, and a reset would then hide it for good.
+  const [loaded, setLoaded] = useState<string>();
+  const [failed, setFailed] = useState<string>();
+  const imgRef = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (img?.complete && img.naturalWidth > 0) setLoaded(src);
+    },
+    [src],
+  );
   return (
     <div className={`poster poster--${size} ${className}`}>
-      {src && state !== 'failed' && (
+      {src && failed !== src && (
         <img
+          ref={imgRef}
           src={src}
           alt=""
           loading="lazy"
           decoding="async"
-          className={state === 'loaded' ? 'loaded' : undefined}
-          onLoad={() => setState('loaded')}
-          onError={() => setState('failed')}
+          className={loaded === src ? 'loaded' : undefined}
+          onLoad={() => setLoaded(src)}
+          onError={() => setFailed(src)}
         />
       )}
     </div>
