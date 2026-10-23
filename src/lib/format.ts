@@ -18,7 +18,7 @@ export function fmtDate(s: string) {
 
 /** 2024-03-01 → 01 Mar 2024 */
 export function fmtDateLong(s: string) {
-  if (!s) return 'No date';
+  if (!s) return '';
   const [y, m, d] = s.split('-');
   return `${d} ${MON[+m - 1]} ${y}`;
 }
@@ -45,3 +45,14 @@ export const fmtScore = (s: number | null | undefined) =>
 export const fmtRuntime = (min?: number) => (min ? `${Math.floor(min / 60)}h ${min % 60}m` : '');
 
 export const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * A timestamp like "2025-12-05 16:40:00+00:00" → the local calendar day (YYYY-MM-DD),
+ * so late-night watches land on the day they happened in your timezone.
+ */
+export function localDay(v: string): string {
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const d = new Date(v.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? v.slice(0, 10) : iso(d);
+}

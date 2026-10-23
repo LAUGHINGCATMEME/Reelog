@@ -10,6 +10,8 @@ const config: CapacitorConfig = {
     adjustMarginsForEdgeToEdge: 'force',
   },
   plugins: {
+    // Route fetch() through native HTTP so MyAnimeList's official API (no browser CORS) works.
+    CapacitorHttp: { enabled: true },
     StatusBar: { style: 'DARK', backgroundColor: '#0C0A0A', overlaysWebView: false },
   },
 };

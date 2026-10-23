@@ -1,7 +1,7 @@
 {
   "name": "Reelog",
   "short_name": "Reelog",
-  "description": "Movie log — dates, ratings, rewatches. Yamtrack compatible.",
+  "description": "Movies, TV and anime log — dates, ranges, ratings. Yamtrack compatible.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

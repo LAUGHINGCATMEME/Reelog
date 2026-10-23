@@ -1,30 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
-import { Icon, Poster } from '../components/ui';
+import { BackBar, Icon, Poster, Skeletons, StatusText } from '../components/ui';
+import { searchAnime } from '../lib/anime';
 import { searchCatalog } from '../lib/catalog';
-import { plural } from '../lib/format';
-import { searchMovies } from '../lib/tmdb';
-import type { Movie } from '../lib/types';
+import { entriesOf, getMeta, libIds, SMAP, statusOf, titleInfo } from '../lib/library';
+import { searchMovies, searchTv } from '../lib/tmdb';
+import type { Data, Kind, SearchHit, Settings } from '../lib/types';
+import { TAB } from './Library';
 
 type Status = 'idle' | 'loading' | 'done' | 'error';
 
 type Props = {
-  query: string;
-  onQuery: (q: string) => void;
-  tmdbKey: string;
-  loggedCount: (id: number) => number;
-  /** Fills in director/year for catalogue movies we already know about. */
-  known: (m: Movie) => Movie;
+  kind: Kind;
+  data: Data;
+  settings: Settings;
   onBack: () => void;
-  onPick: (m: Movie) => void;
+  onOpen: (id: number) => void;
+  onPick: (hit: SearchHit) => void;
+  onTogglePlan: (hit: SearchHit) => void;
 };
 
-export function Search({ query, onQuery, tmdbKey, loggedCount, known, onBack, onPick }: Props) {
+const HINTS: Record<Kind, string> = {
+  movie: 'Search by title. Tap a result to log a watch.',
+  tv: 'Search by title, then pick a season to log episodes.',
+  anime: 'Search by title, then log episodes.',
+};
+
+export function Search({ kind: K, data, settings, onBack, onOpen, onPick, onTogglePlan }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [results, setResults] = useState<Movie[]>([]);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [status, setStatus] = useState<Status>('idle');
-  const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const q = query.trim();
+  const online = K === 'anime' || !!settings.tmdbKey;
 
   useEffect(() => {
     const t = window.setTimeout(() => inputRef.current?.focus(), 60);
@@ -37,29 +45,43 @@ export function Search({ query, onQuery, tmdbKey, loggedCount, known, onBack, on
       setResults([]);
       return;
     }
+    if (!online) {
+      setResults(searchCatalog(K, q));
+      setStatus('done');
+      return;
+    }
     setStatus('loading');
     const ctrl = new AbortController();
     const t = window.setTimeout(async () => {
       try {
-        const res = tmdbKey ? await searchMovies(q, tmdbKey, ctrl.signal) : searchCatalog(q);
+        const res =
+          K === 'movie' ? await searchMovies(settings.tmdbKey, q, ctrl.signal)
+          : K === 'tv' ? await searchTv(settings.tmdbKey, q, ctrl.signal)
+          : await searchAnime(q, settings.malKey, ctrl.signal);
         setResults(res);
         setStatus('done');
-      } catch (e) {
-        if (ctrl.signal.aborted) return;
-        setError(e instanceof Error && e.message.startsWith('TMDB') ? e.message : "Couldn't reach TMDB. Check your connection.");
-        setStatus('error');
+      } catch {
+        if (!ctrl.signal.aborted) setStatus('error');
       }
-    }, tmdbKey ? 350 : 200);
+    }, K === 'anime' ? 450 : 350);
     return () => {
       ctrl.abort();
       window.clearTimeout(t);
     };
-  }, [q, tmdbKey, retry]);
+  }, [q, K, online, settings.tmdbKey, settings.malKey, retry]);
+
+  const ql = q.toLowerCase();
+  const local = q
+    ? libIds(data, K)
+        .map((id) => titleInfo(data, K, id))
+        .filter((x) => x.m.title.toLowerCase().includes(ql) || (x.m.genres ?? []).some((g) => g.toLowerCase() === ql))
+        .slice(0, 6)
+    : [];
+  const source = K === 'anime' ? 'MYANIMELIST' : settings.tmdbKey ? 'TMDB' : 'BUILT-IN CATALOGUE';
 
   return (
-    <div className="screen" style={{ paddingBottom: 120 }}>
-      <div className="topbar topbar--back">
-        <button className="icon-btn" aria-label="Back" onClick={onBack}><Icon name="arrow_back" /></button>
+    <div className="screen">
+      <BackBar onBack={onBack}>
         <div className="search-field">
           <input
             ref={inputRef}
@@ -67,76 +89,102 @@ export function Search({ query, onQuery, tmdbKey, loggedCount, known, onBack, on
             enterKeyHint="search"
             autoComplete="off"
             value={query}
-            placeholder="Search movies"
-            aria-label="Search movies"
-            onChange={(e) => onQuery(e.target.value)}
+            placeholder={TAB[K].ph}
+            aria-label={TAB[K].ph}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.blur()}
           />
           {query && (
-            <button
-              className="icon-btn icon-btn--muted"
-              aria-label="Clear"
-              onClick={() => {
-                onQuery('');
-                inputRef.current?.focus();
-              }}
-            >
+            <button className="icon-btn" aria-label="Clear" onClick={() => { setQuery(''); inputRef.current?.focus(); }}>
               <Icon name="close" />
             </button>
           )}
         </div>
-      </div>
+      </BackBar>
 
-      {status === 'idle' && (
+      {!q && (
         <div className="hint">
-          Search by title. Tap a result to log a watch.
-          <div className="hint-sub">{tmdbKey ? 'Results from TMDB' : 'Built-in catalogue · add a TMDB key in Data for full search'}</div>
-        </div>
-      )}
-
-      {status === 'loading' && (
-        <div className="skeletons" aria-label="Loading">
-          {[1, 2, 3, 4].map((k) => (
-            <div key={k} className="skel">
-              <div className="skel-poster" />
-              <div className="skel-lines"><div className="skel-line" /><div className="skel-line" /></div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {status === 'error' && (
-        <div className="hint">
-          {error}
-          <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center' }}>
-            <button className="text-btn" onClick={() => setRetry((r) => r + 1)}><Icon name="refresh" />Try again</button>
+          {HINTS[K]}
+          <div className="hint-sub">
+            {K === 'anime' ? 'Results from MyAnimeList' : settings.tmdbKey ? 'Results from TMDB' : 'Built-in catalogue · add a TMDB key in Settings for full search'}
           </div>
         </div>
       )}
 
-      {status === 'done' && !results.length && <div className="hint">No movies match “{q}”.</div>}
-
-      {status === 'done' && !!results.length && (
+      {!!local.length && (
         <>
-          <div className="result-count">{plural(results.length, 'result')}</div>
-          <div className="results">
-            {results.map((r) => {
-              const m = known(r);
-              const n = loggedCount(r.id);
-              return (
-                <button key={r.id} className="row-btn" onClick={() => onPick(m)}>
-                  <Poster src={m.image} size="sm" label={false} />
-                  <div className="row-body">
-                    <div className="row-title">{m.title}</div>
-                    <div className="row-sub">{[m.year, m.director].filter(Boolean).join(' · ') || 'Year unknown'}</div>
-                    {n > 0 && <div className="logged">Logged ×{n}</div>}
-                  </div>
-                  <Icon name="add_circle" className="icon-btn--muted" />
-                </button>
-              );
-            })}
+          <div className="section-label" style={{ paddingTop: 8 }}>IN YOUR LIBRARY</div>
+          <div className="list list--flush">
+            {local.map((x) => (
+              <button key={x.id} className="row-btn row-btn--compact" onClick={() => onOpen(x.id)}>
+                <Poster src={x.m.img} size="sm" />
+                <div className="row-body">
+                  <div className="row-title row-title--sm">{x.m.title}</div>
+                  <StatusText status={x.status} className="row-tag" />
+                </div>
+                <Icon name="chevron_right" className="chev" />
+              </button>
+            ))}
           </div>
         </>
+      )}
+
+      {!!q && (
+        <div className="source-row"><span>FROM {source}</span><span>{status === 'done' ? results.length : ''}</span></div>
+      )}
+      {!!q && status === 'loading' && <Skeletons />}
+      {!!q && status === 'error' && (
+        <div className="empty empty--sm">
+          <Icon name="cloud_off" />
+          <div className="empty-body empty-body--wide">
+            {K === 'anime' ? "Couldn't reach MyAnimeList. Check your connection." : "Couldn't reach TMDB. Check your connection."}
+          </div>
+          <button className="text-btn text-btn--strong" onClick={() => setRetry((r) => r + 1)}><Icon name="refresh" />Try again</button>
+        </div>
+      )}
+      {!!q && status === 'done' && !results.length && <div className="hint" style={{ padding: 32 }}>No matches for “{q}”.</div>}
+
+      {!!q && status === 'done' && !!results.length && (
+        <div className="list list--flush">
+          {results.map((r) => {
+            const m = getMeta(data, K, r.id);
+            const img = r.img || m.img;
+            const st = K === 'tv' ? titleInfo(data, 'tv', r.id).status : statusOf(data, K, r.id);
+            const watches = K === 'movie' ? entriesOf(data, 'movie', r.id).length : 0;
+            const sub = (K === 'anime' ? [r.year, r.episodes && `${r.episodes} eps`, r.type] : [r.year || m.year, K === 'movie' && m.director])
+              .filter(Boolean).join(' · ') || 'Year unknown';
+            const planned = st === 'planned';
+            return (
+              <div key={r.id} className="result-row">
+                <button className="row-btn row-btn--compact" onClick={() => onPick(r)}>
+                  <Poster src={img} size="sm" />
+                  <div className="row-body">
+                    <div className="row-title row-title--sm">{r.title}</div>
+                    <div className="row-sub">{sub}</div>
+                    {st && (
+                      <div className="row-tag" style={{ color: SMAP[st].color }}>
+                        {watches ? `Logged ×${watches}` : SMAP[st].label}
+                      </div>
+                    )}
+                  </div>
+                  {K === 'movie' && <Icon name="add_circle" className="muted" />}
+                </button>
+                {/* TV status lives per season, so shows are planned from their seasons instead. */}
+                {K !== 'tv' && (
+                  <button
+                    className="icon-btn plan-btn"
+                    aria-label={planned ? 'Remove from Planned' : 'Add to Planned'}
+                    disabled={!!st && !planned}
+                    onClick={() => onTogglePlan(r)}
+                    style={planned ? { color: 'var(--accent-text)' } : undefined}
+                  >
+                    <Icon name={planned ? 'bookmark_added' : st ? 'check' : 'bookmark_add'} className={planned ? 'ms--fill' : ''} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
