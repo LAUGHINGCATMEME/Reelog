@@ -6,3 +6,4 @@ dist
 yamtrack_*.csv
 reelog-*.json
 *.tsbuildinfo
+MYDATA/
