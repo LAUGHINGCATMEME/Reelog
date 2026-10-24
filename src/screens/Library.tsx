@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Brand, Chip, Icon, Poster, StatusText } from '../components/ui';
 import { fmtScore } from '../lib/format';
+import { groupInfo, type AnimeGroup } from '../lib/groups';
 import { avg, eCount, SMAP, STATUSES, titleInfo, libIds } from '../lib/library';
 import type { Data, Filter, Kind, Settings, Sort } from '../lib/types';
 
@@ -9,21 +11,24 @@ export const TAB: Record<Kind, { title: string; icon: string; fab: string; ph: s
   anime: { title: 'Anime', icon: 'animation', fab: 'Add anime', ph: 'Search anime', empty: 'Search an anime and log episodes one by one or as a range.' },
 };
 
-const SORTS: [Sort, string][] = [['recent', 'Recent'], ['rating', 'Rating'], ['title', 'A–Z']];
+const SORTS: [Sort, string][] = [['started', 'First started'], ['recent', 'Last ended'], ['rating', 'Rating'], ['title', 'A–Z']];
 
 type Props = {
   kind: Kind;
   data: Data;
   filter: Filter;
   layout: Settings['layout'];
+  /** Anime groups to list instead of single anime. */
+  groups?: AnimeGroup[];
   onFilter: (p: Partial<Filter>) => void;
   onSearch: () => void;
   onOpen: (id: number) => void;
 };
 
-export function Library({ kind: K, data, filter: F, layout, onFilter, onSearch, onOpen }: Props) {
+export function Library({ kind: K, data, filter: F, layout, groups, onFilter, onSearch, onOpen }: Props) {
   const T = TAB[K];
-  const all = libIds(data, K).map((id) => titleInfo(data, K, id));
+  const [menu, setMenu] = useState(false);
+  const all = K === 'anime' && groups ? groups.map((g) => groupInfo(data, g)) : libIds(data, K).map((id) => titleInfo(data, K, id));
 
   const counts: Record<string, number> = {};
   for (const x of all) for (const s of new Set(x.statuses)) counts[s] = (counts[s] ?? 0) + 1;
@@ -34,6 +39,7 @@ export function Library({ kind: K, data, filter: F, layout, onFilter, onSearch, 
     (x) => (F.status === 'all' || x.statuses.includes(F.status)) && (!F.genre || (x.m.genres ?? []).includes(F.genre)),
   );
   const sorters: Record<Sort, (a: typeof all[0], b: typeof all[0]) => number> = {
+    started: (a, b) => b.first.localeCompare(a.first) || a.m.title.localeCompare(b.m.title),
     recent: (a, b) => b.last.localeCompare(a.last) || a.m.title.localeCompare(b.m.title),
     rating: (a, b) => (b.score ?? -1) - (a.score ?? -1) || a.m.title.localeCompare(b.m.title),
     title: (a, b) => a.m.title.localeCompare(b.m.title),
@@ -46,7 +52,6 @@ export function Library({ kind: K, data, filter: F, layout, onFilter, onSearch, 
     K === 'movie'
       ? [[all.length, 'films'], [entries.length, 'watches'], [fmtScore(avg(scores)), 'avg']]
       : [[all.length, K === 'tv' ? 'shows' : 'titles'], [entries.reduce((a, e) => a + eCount(e), 0), 'episodes'], [fmtScore(avg(scores)), 'avg']];
-  const si = SORTS.findIndex((x) => x[0] === F.sort);
 
   const statusChips = [
     { k: 'all' as const, label: 'All', n: all.length },
@@ -67,9 +72,30 @@ export function Library({ kind: K, data, filter: F, layout, onFilter, onSearch, 
             {stats.map(([v, l]) => <span key={l}><b>{v}</b> {l}</span>)}
           </div>
           {!!all.length && (
-            <button className="sort-btn" onClick={() => onFilter({ sort: SORTS[(si + 1) % SORTS.length][0] })}>
-              <Icon name="sort" />{SORTS[si][1]}
-            </button>
+            <div className="menu-anchor">
+              <button className="sort-btn" aria-haspopup="listbox" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+                <Icon name="sort" />{SORTS.find((x) => x[0] === F.sort)?.[1]}<Icon name="expand_more" />
+              </button>
+              {menu && (
+                <>
+                  <div className="menu-scrim" onClick={() => setMenu(false)} />
+                  <div className="menu" role="listbox" aria-label="Sort by">
+                    <div className="menu-head">SORT BY</div>
+                    {SORTS.map(([k, label]) => (
+                      <button
+                        key={k}
+                        role="option"
+                        aria-selected={F.sort === k}
+                        className="menu-item"
+                        onClick={() => { onFilter({ sort: k }); setMenu(false); }}
+                      >
+                        {label}{F.sort === k && <Icon name="check" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

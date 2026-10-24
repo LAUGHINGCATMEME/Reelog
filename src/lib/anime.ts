@@ -12,7 +12,11 @@ const JIKAN = 'https://api.jikan.moe/v4';
 const MAL = 'https://api.myanimelist.net/v2';
 const MAL_FIELDS = 'id,title,main_picture,start_date,num_episodes,media_type,genres,average_episode_duration';
 
-const useOfficial = (clientId: string) => isNative && !!clientId;
+export const officialMal = (clientId: string) => isNative && !!clientId;
+
+// Only sequel/prequel links group anime: side stories, spin-offs and "alternative versions"
+// would chain whole unrelated franchises together.
+const LINKS = new Set(['sequel', 'prequel']);
 
 async function json<T>(url: URL, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -34,6 +38,7 @@ type JikanAnime = {
   themes?: { name: string }[];
   type?: string | null;
   duration?: string | null;
+  relations?: { relation: string; entry: { mal_id: number; type: string }[] }[];
 };
 
 /** "24 min per ep" / "1 hr 30 min" → minutes */
@@ -54,8 +59,16 @@ function fromJikan(a: JikanAnime): SearchHit {
     genres: [...(a.genres ?? []), ...(a.themes ?? [])].map((g) => g.name).slice(0, 6),
     type: a.type || undefined,
     dur: durMin(a.duration),
+    start: (a.aired?.from ?? '').slice(0, 10) || undefined,
     full: true,
   };
+}
+
+function linksJikan(a: JikanAnime): Partial<Meta> {
+  const rel = (a.relations ?? [])
+    .filter((r) => LINKS.has(r.relation.toLowerCase()))
+    .flatMap((r) => r.entry.filter((x) => x.type === 'anime').map((x) => x.mal_id));
+  return { rel, linked: true };
 }
 
 // ---- MAL official ----
@@ -69,6 +82,7 @@ type MalAnime = {
   media_type?: string;
   genres?: { name: string }[];
   average_episode_duration?: number;
+  related_anime?: { node: { id: number }; relation_type: string }[];
 };
 
 const MAL_TYPES: Record<string, string> = { tv: 'TV', ova: 'OVA', ona: 'ONA', movie: 'Movie', special: 'Special', music: 'Music', tv_special: 'TV Special' };
@@ -83,9 +97,15 @@ function fromMal(a: MalAnime): SearchHit {
     genres: (a.genres ?? []).map((g) => g.name).slice(0, 6),
     type: a.media_type ? MAL_TYPES[a.media_type] ?? a.media_type.toUpperCase() : undefined,
     dur: a.average_episode_duration ? Math.round(a.average_episode_duration / 60) : undefined,
+    start: a.start_date,
     full: true,
   };
 }
+
+const linksMal = (a: MalAnime): Partial<Meta> => ({
+  rel: (a.related_anime ?? []).filter((r) => LINKS.has(r.relation_type)).map((r) => r.node.id),
+  linked: true,
+});
 
 const malHeaders = (clientId: string) => ({ 'X-MAL-CLIENT-ID': clientId });
 
@@ -93,7 +113,7 @@ const malHeaders = (clientId: string) => ({ 'X-MAL-CLIENT-ID': clientId });
 
 export async function searchAnime(query: string, clientId: string, signal?: AbortSignal): Promise<SearchHit[]> {
   // MAL's search needs at least 3 characters.
-  if (useOfficial(clientId) && query.length >= 3) {
+  if (officialMal(clientId) && query.length >= 3) {
     try {
       const url = new URL(`${MAL}/anime`);
       url.search = new URLSearchParams({ q: query, limit: '20', fields: MAL_FIELDS, nsfw: 'false' }).toString();
@@ -110,19 +130,20 @@ export async function searchAnime(query: string, clientId: string, signal?: Abor
 }
 
 export async function animeDetails(id: number, clientId: string): Promise<Partial<Meta>> {
-  if (useOfficial(clientId)) {
+  if (officialMal(clientId)) {
     try {
       const url = new URL(`${MAL}/anime/${id}`);
-      url.searchParams.set('fields', MAL_FIELDS);
-      const { id: _id, ...m } = fromMal(await json<MalAnime>(url, { headers: malHeaders(clientId) }));
-      return m;
+      url.searchParams.set('fields', `${MAL_FIELDS},related_anime`);
+      const a = await json<MalAnime>(url, { headers: malHeaders(clientId) });
+      const { id: _id, ...m } = fromMal(a);
+      return { ...m, ...linksMal(a) };
     } catch {
       /* fall through to Jikan */
     }
   }
-  const d = await json<{ data: JikanAnime }>(new URL(`${JIKAN}/anime/${id}`));
+  const d = await json<{ data: JikanAnime }>(new URL(`${JIKAN}/anime/${id}/full`));
   const { id: _id, ...m } = fromJikan(d.data);
-  return m;
+  return { ...m, ...linksJikan(d.data) };
 }
 
 /** Checks a MAL client ID against the official API (Android app only). */

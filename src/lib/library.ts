@@ -104,6 +104,8 @@ export type TitleInfo = {
   m: Meta;
   es: Entry[];
   last: string;
+  /** Earliest start date of any entry ('' if none). */
+  first: string;
   status: Status | null;
   /** TV: one per season; otherwise the title's status. */
   statuses: Status[];
@@ -148,7 +150,8 @@ export function titleInfo(data: Data, kind: Kind, id: number): TitleInfo {
       : kind === 'tv'
         ? [m.year, m.seasons?.length && `${m.seasons.length} seasons`]
         : [m.year, m.episodes && `${m.episodes} eps`, m.type];
-  return { id, kind, m, es, last, status, statuses, score, line, sub: sub.filter(Boolean).join(' · ') };
+  const first = es.reduce((a, e) => (!a || eStart(e) < a ? eStart(e) : a), '');
+  return { id, kind, m, es, last, first, status, statuses, score, line, sub: sub.filter(Boolean).join(' · ') };
 }
 
 /** First episode not yet watched, capped at the total. */

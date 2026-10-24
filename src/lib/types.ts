@@ -50,6 +50,12 @@ export type Meta = {
   type?: string;
   /** Minutes per anime episode. */
   dur?: number;
+  /** Anime: first air date (YYYY, YYYY-MM or YYYY-MM-DD). */
+  start?: string;
+  /** Anime: MAL ids of its sequels and prequels. */
+  rel?: number[];
+  /** Anime: set once `rel` has been fetched (it can be empty). */
+  linked?: boolean;
   /** Set once full details have been fetched. */
   full?: boolean;
 };
@@ -62,6 +68,11 @@ export type Data = {
   status: Record<string, Status>;
   /** Title ratings, same keys as status (TV seasons, anime). Movies are rated per watch. */
   rates: Record<string, number>;
+  /**
+   * Manual anime grouping, by MAL id. Anime group automatically along sequel/prequel links;
+   * an id here instead joins the group of the id it points to, or stands alone if it points to itself.
+   */
+  animeGroups?: Record<string, number>;
 };
 
 export type Settings = {
@@ -69,20 +80,24 @@ export type Settings = {
   malKey: string;
   layout: 'list' | 'grid';
   rating: 'slider' | 'tap';
+  /** Show related anime (seasons, movies, OVAs) as one title. */
+  groupAnime: boolean;
 };
 
 export type Route =
   | { s: 'lib' }
-  | { s: 'search'; kind: Kind }
+  | { s: 'search'; kind: Kind; q?: string }
   | { s: 'movie'; id: number }
   | { s: 'show'; id: number }
   | { s: 'eps'; kind: EpKind; ref: number; season?: number }
+  /** An anime group, found by any of its members. */
+  | { s: 'agroup'; id: number }
   | { s: 'settings' }
   | { s: 'stats' };
 
 export type Tab = Kind | 'settings';
 
-export type Sort = 'recent' | 'rating' | 'title';
+export type Sort = 'started' | 'recent' | 'rating' | 'title';
 export type Filter = { status: Status | 'all'; genre: string | null; sort: Sort };
 
 /** A search hit, normalised across TMDB, MyAnimeList and the offline catalogue. */

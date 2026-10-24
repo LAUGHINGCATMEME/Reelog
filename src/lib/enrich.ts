@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { animeDetails } from './anime';
+import { animeDetails, officialMal } from './anime';
 import { clean, getMeta, mkey } from './library';
 import { HttpError, movieDetails, tvDetails } from './tmdb';
 import type { Data, Kind, Meta, Settings } from './types';
@@ -8,7 +8,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Background queue that fetches full details (posters, runtimes, seasons, episode counts) for
- * titles. One request at a time; anime is paced for Jikan's ~3 requests/second limit.
+ * titles. One request at a time; anime is paced for Jikan's limits (3 a second, 60 a minute),
+ * which matters when a library's sequel/prequel links are first walked.
  */
 export function useEnricher(data: Data, setData: Dispatch<SetStateAction<Data>>, settings: Settings) {
   const dataRef = useRef(data);
@@ -52,7 +53,7 @@ export function useEnricher(data: Data, setData: Dispatch<SetStateAction<Data>>,
         n.delete(k);
         return n;
       });
-      if (kind === 'anime') await sleep(400);
+      if (kind === 'anime') await sleep(officialMal(settingsRef.current.malKey) ? 350 : 1050);
     }
     running.current = false;
   }, [setData]);
@@ -61,7 +62,9 @@ export function useEnricher(data: Data, setData: Dispatch<SetStateAction<Data>>,
   const ensure = useCallback(
     (kind: Kind, id: number, priority = false) => {
       if (kind !== 'anime' && !settingsRef.current.tmdbKey) return;
-      if (getMeta(dataRef.current, kind, id).full) return;
+      const m = getMeta(dataRef.current, kind, id);
+      // Anime also need their sequel/prequel links, which older saved details don't have.
+      if (m.full && (kind !== 'anime' || m.linked)) return;
       const k = mkey(kind, id);
       if (queued.current.has(k)) {
         if (priority && queue.current.includes(k)) {

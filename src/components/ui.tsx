@@ -1,45 +1,71 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { SMAP, STATUSES } from '../lib/library';
+import { posterSrc } from '../lib/posters';
 import type { Status, Tab } from '../lib/types';
 
 export const Icon = ({ name, className = '' }: { name: string; className?: string }) => (
   <span className={`ms ${className}`} aria-hidden="true">{name}</span>
 );
 
-/** Striped placeholder; the image fades in once it has loaded. */
+/** Striped placeholder; the image fades in once it has loaded. Uses the saved copy when there is one. */
 export function Poster({ src, size, className = '' }: { src?: string; size: 'sm' | 'md' | 'lg' | 'grid'; className?: string }) {
   // Track which URL loaded/failed rather than resetting on mount: a cached image can finish
   // loading before effects run, and a reset would then hide it for good.
   const [loaded, setLoaded] = useState<string>();
   const [failed, setFailed] = useState<string>();
+  const local = posterSrc(src);
+  // A saved copy that won't load falls back to the network.
+  const url = failed && failed === local ? src : local;
   const imgRef = useCallback(
     (img: HTMLImageElement | null) => {
-      if (img?.complete && img.naturalWidth > 0) setLoaded(src);
+      if (img?.complete && img.naturalWidth > 0) setLoaded(url);
     },
-    [src],
+    [url],
   );
   return (
     <div className={`poster poster--${size} ${className}`}>
-      {src && failed !== src && (
+      {url && failed !== url && (
         <img
           ref={imgRef}
-          src={src}
+          src={url}
           alt=""
           loading="lazy"
           decoding="async"
-          className={loaded === src ? 'loaded' : undefined}
-          onLoad={() => setLoaded(src)}
-          onError={() => setFailed(src)}
+          className={loaded === url ? 'loaded' : undefined}
+          onLoad={() => setLoaded(url)}
+          onError={() => setFailed(url)}
         />
       )}
     </div>
   );
 }
 
+/** Blurred poster glow behind a detail header. */
+export function Backdrop({ src }: { src?: string }) {
+  const url = posterSrc(src);
+  const [loaded, setLoaded] = useState<string>();
+  if (!url) return <div className="backdrop" aria-hidden="true" />;
+  return (
+    <div className="backdrop" aria-hidden="true">
+      <img src={url} alt="" decoding="async" className={loaded === url ? 'loaded' : undefined} onLoad={() => setLoaded(url)} />
+    </div>
+  );
+}
+
+/** The Reelog mark: a film reel with its tape running out flat. Same shape as the app icon. */
+export const Logo = ({ className = '' }: { className?: string }) => (
+  <svg className={`logo ${className}`} viewBox="-140 -132 280 264" aria-hidden="true">
+    <path
+      fill="currentColor"
+      d="M120,0 A128,128 0 1 1 -136,0 A128,128 0 1 1 120,0 Z M-8,100 H122 A14,14 0 0 1 122,128 H-8 Z M20,-70 A28,28 0 1 0 -36,-70 A28,28 0 1 0 20,-70 Z M86.57,-21.63 A28,28 0 1 0 30.57,-21.63 A28,28 0 1 0 86.57,-21.63 Z M61.14,56.63 A28,28 0 1 0 5.14,56.63 A28,28 0 1 0 61.14,56.63 Z M-21.14,56.63 A28,28 0 1 0 -77.14,56.63 A28,28 0 1 0 -21.14,56.63 Z M-46.57,-21.63 A28,28 0 1 0 -102.57,-21.63 A28,28 0 1 0 -46.57,-21.63 Z M6,0 A14,14 0 1 0 -22,0 A14,14 0 1 0 6,0 Z"
+    />
+  </svg>
+);
+
 export function Brand() {
   return (
     <div className="brand">
-      <div className="brand-mark" />
+      <Logo className="brand-mark" />
       <span className="brand-name">REELOG</span>
     </div>
   );

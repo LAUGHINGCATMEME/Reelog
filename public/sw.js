@@ -1,4 +1,4 @@
-// Reelog service worker: app shell works offline; posters and fonts are cached as they load.
+// Reelog service worker: app shell works offline; posters and fonts are kept once they load.
 const VERSION = 'reelog-v1';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
@@ -40,8 +40,8 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') return e.respondWith(networkFirst(req));
   if (
     url.hostname === 'image.tmdb.org' ||
-    url.hostname === 'fonts.gstatic.com' ||
-    (url.origin === location.origin && url.pathname.includes('/assets/'))
+    url.hostname === 'cdn.myanimelist.net' ||
+    (url.origin === location.origin && (url.pathname.includes('/assets/') || url.pathname.includes('/fonts/')))
   ) return e.respondWith(cacheFirst(req));
-  if (url.hostname === 'fonts.googleapis.com' || url.origin === location.origin) e.respondWith(networkFirst(req));
+  if (url.origin === location.origin) e.respondWith(networkFirst(req));
 });

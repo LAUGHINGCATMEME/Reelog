@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { blankSheet, DEFAULT_SCORE, LogSheet, type SheetState } from './components/LogSheet';
-import { Dialog, type DialogSpec, Icon, NavBar, Toast, useToast } from './components/ui';
+import { Dialog, type DialogSpec, Icon, Logo, NavBar, Toast, useToast } from './components/ui';
 import { useEnricher } from './lib/enrich';
+import { groupAnime, knownAnime, type AnimeGroup } from './lib/groups';
 import { fmtDate, parseDate, plural, todayIso } from './lib/format';
 import {
   clean, dateLabel, entriesOf, epLabel, epShort, eStart, eEnd, getMeta, isEp, libIds, mkey, nextEpisode, skey, SMAP, total, watched,
 } from './lib/library';
 import { isNative, onNativeBack, saveFile } from './lib/native';
+import { keepPoster } from './lib/posters';
 import { backupJson, EMPTY_DATA, newId, parseBackup, useData, useSettings } from './lib/store';
 import type { EpEntry, EpKind, Entry, Filter, Kind, Meta, MovieEntry, NewEntry, Route, SearchHit, Status, Tab } from './lib/types';
 import { csvHeader, csvLine, csvRows, entrySig, readYamtrackCsv, toCsv } from './lib/yamtrack';
-import { Episodes, MovieDetail, ShowDetail } from './screens/Detail';
+import { AnimeGroupDetail, Episodes, MovieDetail, ShowDetail } from './screens/Detail';
 import { Library, TAB } from './screens/Library';
 import { Search } from './screens/Search';
 import { Settings } from './screens/Settings';
@@ -44,27 +46,90 @@ export default function App() {
 
   // Fetch missing details for everything in the library (and again once a key is added).
   useEffect(() => {
-    for (const k of ['movie', 'tv', 'anime'] as const) for (const id of libIds(data, k)) ensure(k, id);
-  }, [data.entries, data.status, settings.tmdbKey, settings.malKey, ensure]);
+    for (const k of ['movie', 'tv'] as const) for (const id of libIds(data, k)) ensure(k, id);
+  }, [data.entries, data.status, settings.tmdbKey, ensure]);
+  // Anime also follow sequel/prequel links outward, so whole franchises get found.
+  useEffect(() => {
+    for (const id of settings.groupAnime ? knownAnime(data) : libIds(data, 'anime')) ensure('anime', id);
+  }, [data.entries, data.status, data.meta, data.animeGroups, settings.groupAnime, settings.malKey, ensure]);
+
+  const grouping = useMemo(
+    () => groupAnime(data, settings.groupAnime),
+    [data.meta, data.entries, data.status, data.rates, data.animeGroups, settings.groupAnime],
+  );
+
+  // Keep every poster in the library saved on the device (Android app), not just the ones seen.
+  useEffect(() => {
+    for (const k of ['movie', 'tv'] as const) {
+      for (const id of libIds(data, k)) {
+        const m = getMeta(data, k, id);
+        keepPoster(m.img);
+        for (const s of m.seasons ?? []) keepPoster(s.img);
+      }
+    }
+    for (const g of grouping.groups) for (const id of g.ids) keepPoster(getMeta(data, 'anime', id).img);
+  }, [data.meta, data.entries, data.status, grouping]);
 
   // ---- Navigation ----
+  // Each screen in the stack remembers where it was scrolled, and so does each tab's root,
+  // so going back lands where you left off. Positions are applied right after the new screen renders.
+  const stackY = useRef<number[]>([]);
+  const tabY = useRef<Partial<Record<Tab, number>>>({});
+  const pendingY = useRef<number | null>(null);
+  const [anim, setAnim] = useState<{ n: number; dir: 'fwd' | 'back' | 'tab' | 'none' }>({ n: 0, dir: 'none' });
+  const scrollTop = () => scrollRef.current?.scrollTop ?? 0;
+  const moved = (dir: 'fwd' | 'back' | 'tab', y: number) => {
+    pendingY.current = y;
+    setAnim((a) => ({ n: a.n + 1, dir }));
+  };
+  useLayoutEffect(() => {
+    if (pendingY.current == null || !scrollRef.current) return;
+    scrollRef.current.scrollTop = pendingY.current;
+    pendingY.current = null;
+  });
+
   const onScreen = useCallback((r: Route) => {
-    scrollRef.current?.scrollTo({ top: 0 });
     if (r.s === 'movie') ensure('movie', r.id, true);
     if (r.s === 'show') ensure('tv', r.id, true);
     if (r.s === 'eps') ensure(r.kind, r.ref, true);
-  }, [ensure]);
-  const go = (r: Route) => { setStack((s) => [...s, r]); onScreen(r); };
-  const swap = (r: Route) => { setStack((s) => [...s.slice(0, -1), r]); onScreen(r); };
-  const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+    if (r.s === 'agroup') for (const id of grouping.of.get(r.id)?.ids ?? [r.id]) ensure('anime', id, true);
+  }, [ensure, grouping]);
+  const go = (r: Route) => {
+    stackY.current[stack.length - 1] = scrollTop();
+    setStack((s) => [...s, r]);
+    moved('fwd', 0);
+    onScreen(r);
+  };
+  const swap = (r: Route) => { setStack((s) => [...s.slice(0, -1), r]); moved('fwd', 0); onScreen(r); };
+  const back = () => {
+    if (stack.length < 2) return;
+    setStack(stack.slice(0, -1));
+    moved('back', stackY.current[stack.length - 2] ?? 0);
+  };
   const tabGo = (t: Tab, filter?: Partial<Filter>) => {
+    const atRoot = stack.length === 1;
+    if (filter && t !== 'settings') setFilters((f) => ({ ...f, [t]: { ...f[t], ...filter } }));
+    if (t === tab && atRoot) {
+      // Tapping the tab you're on goes back to the top.
+      scrollRef.current?.scrollTo({ top: 0, behavior: filter ? 'auto' : 'smooth' });
+      return;
+    }
+    tabY.current[tab] = atRoot ? scrollTop() : stackY.current[0] ?? 0;
     setTab(t);
     setStack([rootOf(t)]);
-    if (filter && t !== 'settings') setFilters((f) => ({ ...f, [t]: { ...f[t], ...filter } }));
-    scrollRef.current?.scrollTo({ top: 0 });
+    // A new filter shows a different list, so start that one at the top.
+    moved(t === tab ? 'back' : 'tab', filter ? 0 : tabY.current[t] ?? 0);
   };
+  const setQuery = (q: string) =>
+    setStack((s) => {
+      const top = s[s.length - 1];
+      return top.s === 'search' ? [...s.slice(0, -1), { ...top, q }] : s;
+    });
   const openTitle = (kind: Kind, id: number) =>
     go(kind === 'movie' ? { s: 'movie', id } : kind === 'tv' ? { s: 'show', id } : { s: 'eps', kind: 'anime', ref: id });
+  // Library rows open an anime's group when it has more than one member.
+  const openLib = (kind: Kind, id: number) =>
+    kind === 'anime' && (grouping.of.get(id)?.ids.length ?? 0) > 1 ? go({ s: 'agroup', id }) : openTitle(kind, id);
 
   const closeSheet = useCallback(() => setSheet((s) => ({ ...s, open: false })), []);
   const patchSheet = useCallback((p: Partial<SheetState>) => setSheet((s) => ({ ...s, ...p })), []);
@@ -274,6 +339,33 @@ export default function App() {
     });
   };
 
+  // ---- Anime groups ----
+  const setGroups = (f: (g: Record<string, number>) => void) =>
+    setData((d) => {
+      const animeGroups = { ...d.animeGroups };
+      f(animeGroups);
+      return { ...d, animeGroups };
+    });
+  const animeTitle = (id: number) => getMeta(data, 'anime', id).title;
+  const splitAnime = (g: AnimeGroup, id: number) => {
+    // Anime moved here by pointing at this one now point at a member that stays.
+    const stay = g.ids.find((x) => x !== id && data.animeGroups?.[x] == null) ?? g.ids.find((x) => x !== id);
+    setGroups((m) => {
+      for (const [k, v] of Object.entries(m)) if (v === id && +k !== id && stay != null) m[k] = stay;
+      m[id] = id;
+    });
+    showToast(`Split out ${animeTitle(id)}`);
+  };
+  const resetAnime = (id: number) => {
+    setGroups((m) => void delete m[id]);
+    showToast(`Moved ${animeTitle(id)} back`);
+  };
+  const mergeAnime = (g: AnimeGroup, other: AnimeGroup) => {
+    const anchor = g.ids.find((x) => data.animeGroups?.[x] == null) ?? g.root;
+    setGroups((m) => { for (const id of other.ids) m[id] = anchor; });
+    showToast(`Added ${animeTitle(other.root)}`);
+  };
+
   // ---- Import / export ----
   const rows = useMemo(() => (route.s === 'settings' ? csvRows(data) : []), [route.s, data]);
   const csvPreview = [csvHeader(), ...rows.slice(0, 3).map(csvLine)].join('\n');
@@ -302,7 +394,7 @@ export default function App() {
         setData((d) => {
           const meta = { ...d.meta };
           for (const [k, v] of Object.entries(r.meta)) meta[k] = { ...clean(v), ...meta[k] };
-          return { entries: [...d.entries, ...r.add], meta, status: { ...d.status, ...status }, rates: { ...d.rates, ...rates } };
+          return { ...d, entries: [...d.entries, ...r.add], meta, status: { ...d.status, ...status }, rates: { ...d.rates, ...rates } };
         });
         showToast(`Imported ${plural(r.add.length, 'entry', 'entries')}`);
       },
@@ -321,6 +413,7 @@ export default function App() {
         meta: { ...b.meta, ...d.meta },
         status: { ...b.status, ...d.status },
         rates: { ...b.rates, ...d.rates },
+        animeGroups: { ...b.animeGroups, ...d.animeGroups },
       }));
       showToast(`Restored ${plural(add.length, 'entry', 'entries')}`);
     });
@@ -341,97 +434,129 @@ export default function App() {
   return (
     <div className="app">
       <div className="scroll" ref={scrollRef}>
-        {route.s === 'lib' && (
-          <Library
-            kind={libKind}
-            data={data}
-            filter={filters[libKind]}
-            layout={settings.layout}
-            onFilter={(p) => setFilters((f) => ({ ...f, [libKind]: { ...f[libKind], ...p } }))}
-            onSearch={() => go({ s: 'search', kind: libKind })}
-            onOpen={(id) => openTitle(libKind, id)}
-          />
-        )}
-        {route.s === 'search' && (
-          <Search
-            kind={route.kind}
-            data={data}
-            settings={settings}
-            onBack={back}
-            onOpen={(id) => openTitle(route.kind, id)}
-            onPick={(h) => {
-              mergeMeta(mkey(route.kind, h.id), hitMeta(route.kind, h));
-              if (route.kind === 'movie') logMovie(h.id);
-              else openTitle(route.kind, h.id);
-            }}
-            onTogglePlan={(h) => {
-              const key = skey(route.kind, h.id);
-              const planned = data.status[key] === 'planned';
-              mergeMeta(mkey(route.kind, h.id), hitMeta(route.kind, h));
-              setStatus(key, 'planned');
-              showToast(planned ? 'Removed from Planned' : `${h.title} added to Planned`);
-            }}
-          />
-        )}
-        {route.s === 'movie' && (
-          <MovieDetail
-            id={route.id}
-            data={data}
-            onBack={back}
-            onGenre={genreGo}
-            onStatus={statusChange}
-            onLog={(e) => logMovie(route.id, e)}
-            onRemove={() => removeTitle('movie', route.id, undefined, getMeta(data, 'movie', route.id).title)}
-          />
-        )}
-        {route.s === 'show' && (
-          <ShowDetail
-            id={route.id}
-            data={data}
-            loading={loading.has(mkey('tv', route.id))}
-            hasKey={!!settings.tmdbKey}
-            onBack={back}
-            onGenre={genreGo}
-            onSeason={(n) => go({ s: 'eps', kind: 'tv', ref: route.id, season: n })}
-            onRemove={() => removeTitle('tv', route.id, undefined, getMeta(data, 'tv', route.id).title)}
-          />
-        )}
-        {route.s === 'eps' && (
-          <Episodes
-            kind={route.kind}
-            refId={route.ref}
-            season={route.season}
-            data={data}
-            onBack={back}
-            onGenre={genreGo}
-            onStatus={statusChange}
-            onLog={(e, ep) => logEps(route.kind, route.ref, route.season, e, ep)}
-            onRate={() => rate(route.kind, route.ref, route.season)}
-            onRemove={() => {
-              const m = getMeta(data, route.kind, route.ref);
-              const sn = m.seasons?.find((x) => x.n === route.season)?.name ?? `S${route.season}`;
-              removeTitle(route.kind, route.ref, route.season, route.kind === 'tv' ? `${m.title} ${sn}` : m.title);
-            }}
-          />
-        )}
-        {route.s === 'settings' && (
-          <Settings
-            data={data}
-            settings={settings}
-            csvPreview={csvPreview}
-            canExportCsv={rows.length > 0}
-            onSettings={(p) => setSettings((s) => ({ ...s, ...p }))}
-            onStats={() => go({ s: 'stats' })}
-            onExportCsv={() => share(`reelog-yamtrack-${todayIso()}.csv`, toCsv(rows), 'text/csv')}
-            onExportJson={() => share(`reelog-backup-${todayIso()}.json`, backupJson(data), 'application/json')}
-            onCsvFile={onCsvFile}
-            onJsonFile={onJsonFile}
-            onErase={eraseAll}
-            notify={info}
-            toast={showToast}
-          />
-        )}
-        {route.s === 'stats' && <Stats data={data} onBack={back} />}
+        <div key={anim.n} className="page" data-anim={anim.dir}>
+          {route.s === 'lib' && (
+            <Library
+              kind={libKind}
+              data={data}
+              filter={filters[libKind]}
+              layout={settings.layout}
+              groups={settings.groupAnime ? grouping.groups : undefined}
+              onFilter={(p) => setFilters((f) => ({ ...f, [libKind]: { ...f[libKind], ...p } }))}
+              onSearch={() => go({ s: 'search', kind: libKind })}
+              onOpen={(id) => openLib(libKind, id)}
+            />
+          )}
+          {route.s === 'search' && (
+            <Search
+              kind={route.kind}
+              query={route.q ?? ''}
+              onQuery={setQuery}
+              data={data}
+              settings={settings}
+              onBack={back}
+              onOpen={(id) => openTitle(route.kind, id)}
+              onPick={(h) => {
+                mergeMeta(mkey(route.kind, h.id), hitMeta(route.kind, h));
+                if (route.kind === 'movie') logMovie(h.id);
+                else openTitle(route.kind, h.id);
+              }}
+              onTogglePlan={(h) => {
+                const key = skey(route.kind, h.id);
+                const planned = data.status[key] === 'planned';
+                mergeMeta(mkey(route.kind, h.id), hitMeta(route.kind, h));
+                setStatus(key, 'planned');
+                showToast(planned ? 'Removed from Planned' : `${h.title} added to Planned`);
+              }}
+            />
+          )}
+          {route.s === 'movie' && (
+            <MovieDetail
+              id={route.id}
+              data={data}
+              onBack={back}
+              onGenre={genreGo}
+              onStatus={statusChange}
+              onLog={(e) => logMovie(route.id, e)}
+              onRemove={() => removeTitle('movie', route.id, undefined, getMeta(data, 'movie', route.id).title)}
+            />
+          )}
+          {route.s === 'show' && (
+            <ShowDetail
+              id={route.id}
+              data={data}
+              loading={loading.has(mkey('tv', route.id))}
+              hasKey={!!settings.tmdbKey}
+              onBack={back}
+              onGenre={genreGo}
+              onSeason={(n) => go({ s: 'eps', kind: 'tv', ref: route.id, season: n })}
+              onRemove={() => removeTitle('tv', route.id, undefined, getMeta(data, 'tv', route.id).title)}
+            />
+          )}
+          {route.s === 'agroup' && (() => {
+            const g = grouping.of.get(route.id);
+            // A group split down to one anime is just that anime.
+            if (!g || g.ids.length < 2) return null;
+            return (
+              <AnimeGroupDetail
+                group={g}
+                grouping={grouping}
+                data={data}
+                onBack={back}
+                onGenre={genreGo}
+                onOpen={(id) => openTitle('anime', id)}
+                onSplit={(id) => splitAnime(g, id)}
+                onUnsplit={resetAnime}
+                onUnmove={resetAnime}
+                onMerge={(o) => mergeAnime(g, o)}
+              />
+            );
+          })()}
+          {(route.s === 'eps' || (route.s === 'agroup' && (grouping.of.get(route.id)?.ids.length ?? 0) < 2)) && (() => {
+            const r: Extract<Route, { s: 'eps' }> = route.s === 'eps' ? route : { s: 'eps', kind: 'anime', ref: route.id };
+            const g = r.kind === 'anime' ? grouping.of.get(r.ref) : undefined;
+            const inGroup = stack.some((x) => x.s === 'agroup' && g?.ids.includes(x.id));
+            return (
+              <Episodes
+                kind={r.kind}
+                refId={r.ref}
+                season={r.season}
+                partOf={g && g.ids.length > 1 && !inGroup
+                  ? { title: getMeta(data, 'anime', g.root).title, n: g.ids.length, onOpen: () => go({ s: 'agroup', id: r.ref }) }
+                  : undefined}
+                data={data}
+                onBack={back}
+                onGenre={genreGo}
+                onStatus={statusChange}
+                onLog={(e, ep) => logEps(r.kind, r.ref, r.season, e, ep)}
+                onRate={() => rate(r.kind, r.ref, r.season)}
+                onRemove={() => {
+                  const m = getMeta(data, r.kind, r.ref);
+                  const sn = m.seasons?.find((x) => x.n === r.season)?.name ?? `S${r.season}`;
+                  removeTitle(r.kind, r.ref, r.season, r.kind === 'tv' ? `${m.title} ${sn}` : m.title);
+                }}
+              />
+            );
+          })()}
+          {route.s === 'settings' && (
+            <Settings
+              data={data}
+              settings={settings}
+              csvPreview={csvPreview}
+              canExportCsv={rows.length > 0}
+              onSettings={(p) => setSettings((s) => ({ ...s, ...p }))}
+              onStats={() => go({ s: 'stats' })}
+              onExportCsv={() => share(`reelog-yamtrack-${todayIso()}.csv`, toCsv(rows), 'text/csv')}
+              onExportJson={() => share(`reelog-backup-${todayIso()}.json`, backupJson(data), 'application/json')}
+              onCsvFile={onCsvFile}
+              onJsonFile={onJsonFile}
+              onErase={eraseAll}
+              notify={info}
+              toast={showToast}
+            />
+          )}
+          {route.s === 'stats' && <Stats data={data} onBack={back} onOpen={openTitle} />}
+        </div>
       </div>
 
       {route.s === 'lib' && (
@@ -456,7 +581,7 @@ export default function App() {
       />
 
       <Dialog spec={dlg} open={dlgOpen} onClose={() => setDlgOpen(false)} />
-      <div className="splash" data-on={splash} aria-hidden="true"><div /></div>
+      <div className="splash" data-on={splash} aria-hidden="true"><Logo /></div>
     </div>
   );
 }

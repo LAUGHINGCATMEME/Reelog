@@ -203,6 +203,18 @@ export function Settings(p: Props) {
             ))}
           </div>
         </div>
+        <div className="divider" />
+        <div className="setting">
+          <div className="setting-text">
+            <span className="setting-label">Group anime</span>
+            <span className="setting-sub">Seasons, movies and OVAs as one title</span>
+          </div>
+          <div className="seg">
+            {([true, false] as const).map((v) => (
+              <Chip key={String(v)} className="chip--wide" on={p.settings.groupAnime === v} onClick={() => p.onSettings({ groupAnime: v })}>{v ? 'On' : 'Off'}</Chip>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="center-row" style={{ paddingTop: 28 }}>

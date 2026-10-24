@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   malKey: '',
   layout: 'list',
   rating: 'slider',
+  groupAnime: true,
 };
 
 let uid = Date.now();
@@ -96,5 +97,6 @@ export function parseBackup(text: string): Data | null {
     meta: d.meta ?? {},
     status: d.status ?? {},
     rates: d.rates ?? {},
+    animeGroups: d.animeGroups ?? {},
   };
 }

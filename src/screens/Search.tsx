@@ -11,6 +11,9 @@ type Status = 'idle' | 'loading' | 'done' | 'error';
 
 type Props = {
   kind: Kind;
+  /** Kept by the app so the query survives opening a result and coming back. */
+  query: string;
+  onQuery: (q: string) => void;
   data: Data;
   settings: Settings;
   onBack: () => void;
@@ -25,16 +28,20 @@ const HINTS: Record<Kind, string> = {
   anime: 'Search by title, then log episodes.',
 };
 
-export function Search({ kind: K, data, settings, onBack, onOpen, onPick, onTogglePlan }: Props) {
+// Recent online results, so going back to a search shows them at once instead of refetching.
+const recent = new Map<string, SearchHit[]>();
+
+export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBack, onOpen, onPick, onTogglePlan }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchHit[]>([]);
-  const [status, setStatus] = useState<Status>('idle');
-  const [retry, setRetry] = useState(0);
   const q = query.trim();
+  const cached = recent.get(`${K}|${q}`);
+  const [results, setResults] = useState<SearchHit[]>(cached ?? []);
+  const [status, setStatus] = useState<Status>(cached ? 'done' : 'idle');
+  const [retry, setRetry] = useState(0);
   const online = K === 'anime' || !!settings.tmdbKey;
 
   useEffect(() => {
+    if (query) return; // coming back to a search: don't pop the keyboard over the results
     const t = window.setTimeout(() => inputRef.current?.focus(), 60);
     return () => window.clearTimeout(t);
   }, []);
@@ -50,6 +57,12 @@ export function Search({ kind: K, data, settings, onBack, onOpen, onPick, onTogg
       setStatus('done');
       return;
     }
+    const hit = recent.get(`${K}|${q}`);
+    if (hit && !retry) {
+      setResults(hit);
+      setStatus('done');
+      return;
+    }
     setStatus('loading');
     const ctrl = new AbortController();
     const t = window.setTimeout(async () => {
@@ -58,6 +71,8 @@ export function Search({ kind: K, data, settings, onBack, onOpen, onPick, onTogg
           K === 'movie' ? await searchMovies(settings.tmdbKey, q, ctrl.signal)
           : K === 'tv' ? await searchTv(settings.tmdbKey, q, ctrl.signal)
           : await searchAnime(q, settings.malKey, ctrl.signal);
+        recent.set(`${K}|${q}`, res);
+        if (recent.size > 20) recent.delete(recent.keys().next().value!);
         setResults(res);
         setStatus('done');
       } catch {
