@@ -42,7 +42,13 @@ export function parseDate(t: string): string | null {
 export const fmtScore = (s: number | null | undefined) =>
   s == null ? '—' : s % 1 ? s.toFixed(1) : String(s);
 
-export const fmtRuntime = (min?: number) => (min ? `${Math.floor(min / 60)}h ${min % 60}m` : '');
+/** 106 → "1h 46m", 120 → "2h", 8 → "8m". */
+export const fmtRuntime = (min?: number) => {
+  if (!min) return '';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+};
 
 export const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 

@@ -1,4 +1,4 @@
-import type { Meta, SearchHit } from './types';
+import type { Details, Meta, Person, SearchHit } from './types';
 
 const API = 'https://api.themoviedb.org/3';
 const IMG = 'https://image.tmdb.org/t/p/w342';
@@ -82,4 +82,121 @@ export async function tvDetails(key: string, id: number): Promise<Partial<Meta>>
 
 export async function verifyKey(key: string) {
   await get(key, '/configuration');
+}
+
+// ---- Detail page ----
+
+const FACE = 'https://image.tmdb.org/t/p/w185';
+const face = (p?: string | null) => (p ? FACE + p : undefined);
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const longDate = (d?: string | null) => {
+  if (!d) return '';
+  const [y, m, day] = d.split('-');
+  return `${+day} ${MON[+m - 1]} ${y}`;
+};
+const money = (n?: number) => (n ? `$${n >= 1e6 ? `${Math.round(n / 1e5) / 10}M` : n.toLocaleString()}` : '');
+const lang = (code?: string) => {
+  if (!code) return '';
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+
+type CastMember = { name: string; character?: string; profile_path?: string | null; roles?: { character: string }[] };
+type CrewMember = { name: string; job?: string; profile_path?: string | null; jobs?: { job: string }[] };
+type ExtraBase = {
+  overview?: string;
+  tagline?: string;
+  status?: string;
+  vote_average?: number;
+  vote_count?: number;
+  original_language?: string;
+  production_companies?: Named[];
+  production_countries?: Named[];
+};
+
+/** Directors, writers and the composer, in that order, one entry per person. */
+function keyCrew(crew: CrewMember[]) {
+  const JOBS = ['Director', 'Screenplay', 'Writer', 'Story', 'Novel', 'Original Music Composer', 'Director of Photography'];
+  const out = new Map<string, Person>();
+  for (const job of JOBS) {
+    for (const c of crew) {
+      const jobs = c.jobs?.map((j) => j.job) ?? [c.job];
+      if (!jobs.includes(job)) continue;
+      const p = out.get(c.name);
+      if (p) {
+        if (!p.role!.includes(job)) p.role += `, ${job}`;
+      } else out.set(c.name, { name: c.name, role: job, img: face(c.profile_path) });
+    }
+  }
+  return [...out.values()].slice(0, 10);
+}
+
+const castOf = (cast: CastMember[]): Person[] =>
+  cast.slice(0, 16).map((c) => ({ name: c.name, role: c.character ?? c.roles?.[0]?.character, img: face(c.profile_path) }));
+
+const score = (d: ExtraBase) => (d.vote_count && d.vote_count >= 10 && d.vote_average ? Math.round(d.vote_average * 10) / 10 : undefined);
+
+export async function movieExtra(key: string, id: number): Promise<Details> {
+  const d = await get<ExtraBase & MovieHit & {
+    runtime?: number; budget?: number; revenue?: number; original_title?: string;
+    credits?: { cast?: CastMember[]; crew?: CrewMember[] };
+  }>(key, `/movie/${id}`, { append_to_response: 'credits' });
+  const facts: [string, string][] = [
+    ['Released', longDate(d.release_date)],
+    ['Runtime', d.runtime ? `${Math.floor(d.runtime / 60)}h ${d.runtime % 60}m` : ''],
+    ['Status', d.status && d.status !== 'Released' ? d.status : ''],
+    ['Language', lang(d.original_language)],
+    ['Original title', d.original_title && d.original_title !== d.title ? d.original_title : ''],
+    ['Country', (d.production_countries ?? []).map((c) => c.name).slice(0, 3).join(', ')],
+    ['Studio', (d.production_companies ?? []).map((c) => c.name).slice(0, 3).join(', ')],
+    ['Budget', money(d.budget)],
+    ['Box office', money(d.revenue)],
+  ];
+  return {
+    overview: d.overview || undefined,
+    tagline: d.tagline || undefined,
+    facts: facts.filter(([, v]) => v),
+    cast: castOf(d.credits?.cast ?? []),
+    crew: keyCrew(d.credits?.crew ?? []),
+    score: score(d),
+    at: Date.now(),
+  };
+}
+
+export async function tvExtra(key: string, id: number): Promise<Details> {
+  const d = await get<ExtraBase & TvHit & {
+    last_air_date?: string; original_name?: string; type?: string;
+    networks?: Named[]; created_by?: { name: string; profile_path?: string | null }[];
+    number_of_episodes?: number; number_of_seasons?: number;
+    next_episode_to_air?: { episode_number: number; season_number: number; air_date?: string } | null;
+    aggregate_credits?: { cast?: CastMember[]; crew?: CrewMember[] };
+  }>(key, `/tv/${id}`, { append_to_response: 'aggregate_credits' });
+  const first = longDate(d.first_air_date);
+  const last = longDate(d.last_air_date);
+  const facts: [string, string][] = [
+    ['Aired', first && last && first !== last ? `${first} – ${last}` : first],
+    ['Status', d.status ?? ''],
+    ['Episodes', d.number_of_episodes ? `${d.number_of_episodes} in ${d.number_of_seasons} season${d.number_of_seasons === 1 ? '' : 's'}` : ''],
+    ['Network', (d.networks ?? []).map((n) => n.name).slice(0, 3).join(', ')],
+    ['Language', lang(d.original_language)],
+    ['Original title', d.original_name && d.original_name !== d.name ? d.original_name : ''],
+    ['Country', (d.production_countries ?? []).map((c) => c.name).slice(0, 3).join(', ')],
+    ['Studio', (d.production_companies ?? []).map((c) => c.name).slice(0, 3).join(', ')],
+  ];
+  const creators: Person[] = (d.created_by ?? []).map((c) => ({ name: c.name, role: 'Creator', img: face(c.profile_path) }));
+  const crew = keyCrew(d.aggregate_credits?.crew ?? []).filter((p) => !creators.some((c) => c.name === p.name));
+  const nx = d.next_episode_to_air;
+  return {
+    overview: d.overview || undefined,
+    tagline: d.tagline || undefined,
+    facts: facts.filter(([, v]) => v),
+    cast: castOf(d.aggregate_credits?.cast ?? []),
+    crew: [...creators, ...crew].slice(0, 10),
+    score: score(d),
+    next: nx?.air_date ? { ep: nx.episode_number, season: nx.season_number, at: nx.air_date } : undefined,
+    at: Date.now(),
+  };
 }

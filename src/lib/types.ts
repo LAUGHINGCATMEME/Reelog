@@ -36,6 +36,11 @@ export type Season = { n: number; name: string; episodes: number; year?: string;
 
 export type Meta = {
   title: string;
+  /**
+   * Anime: the English title, or the romaji one when AniList has no English title. Shown instead
+   * of `title` when Settings → Anime titles is English. Missing until fetched.
+   */
+  titleEn?: string;
   year: string;
   img?: string;
   genres: string[];
@@ -52,12 +57,34 @@ export type Meta = {
   dur?: number;
   /** Anime: first air date (YYYY, YYYY-MM or YYYY-MM-DD). */
   start?: string;
-  /** Anime: MAL ids of its sequels and prequels. */
+  /** Anime: AniList ids of the entries it groups with (sequels, prequels, side stories, parent). */
   rel?: number[];
-  /** Anime: set once `rel` has been fetched (it can be empty). */
-  linked?: boolean;
-  /** Set once full details have been fetched. */
+  /** Anime: MyAnimeList id, when AniList knows one. */
+  idMal?: number;
+  /** Set once full details (for anime: including `rel`) have been fetched. */
   full?: boolean;
+};
+
+/** A cast or crew member on a detail page. */
+export type Person = { name: string; role?: string; img?: string };
+
+/**
+ * The extra information on a detail page: overview, facts, cast and crew. Fetched when the page
+ * is opened and kept in a separate, size-capped cache (see details.ts), not in Data.
+ */
+export type Details = {
+  overview?: string;
+  tagline?: string;
+  /** Label/value pairs, already formatted: "Status" → "Ended". */
+  facts: [string, string][];
+  cast: Person[];
+  crew: Person[];
+  /** Community score out of 10 (TMDB votes, AniList average). */
+  score?: number;
+  /** Next episode to air. `at` is an ISO date. */
+  next?: { ep: number; season?: number; at: string };
+  /** When this was fetched (ms), so stale details are refreshed. */
+  at: number;
 };
 
 export type Data = {
@@ -69,19 +96,62 @@ export type Data = {
   /** Title ratings, same keys as status (TV seasons, anime). Movies are rated per watch. */
   rates: Record<string, number>;
   /**
-   * Manual anime grouping, by MAL id. Anime group automatically along sequel/prequel links;
-   * an id here instead joins the group of the id it points to, or stands alone if it points to itself.
+   * Manual anime grouping, by AniList id. Anime group automatically along sequel/prequel and
+   * side-story links; an id here instead joins the group of the id it points to, or stands alone
+   * if it points to itself.
    */
   animeGroups?: Record<string, number>;
+  /**
+   * Anime from before the switch to AniList, still keyed by MyAnimeList id. They're converted
+   * to AniList ids in the background (see migrate.ts) and this is removed once that's done.
+   */
+  legacyMal?: LegacyMal;
+  /** Tier lists, newest first. */
+  tierLists?: TierList[];
 };
+
+/** One row of a tier list. Items are title keys (`movie:603`, `tv:1396`, `anime:16498`), best first. */
+export type Tier = { id: string; label: string; color: string; items: string[] };
+
+export type TierList = {
+  id: string;
+  name: string;
+  /** What it ranks: titles of these kinds are offered when adding. */
+  kinds: Kind[];
+  tiers: Tier[];
+  /** Added but not placed in a tier yet. */
+  pool: string[];
+  /** ISO timestamps. */
+  created: string;
+  updated: string;
+};
+
+export type LegacyMal = {
+  entries: EpEntry[];
+  status: Record<string, Status>;
+  rates: Record<string, number>;
+  animeGroups: Record<string, number>;
+  /** Their titles, by MAL id, so ones AniList can't match can still be named. */
+  titles: Record<string, string>;
+};
+
+export type Theme = 'system' | 'black' | 'oled' | 'white';
 
 export type Settings = {
   tmdbKey: string;
-  malKey: string;
   layout: 'list' | 'grid';
   rating: 'slider' | 'tap';
   /** Show related anime (seasons, movies, OVAs) as one title. */
   groupAnime: boolean;
+  theme: Theme;
+  /** Android app: write a backup to Documents/Reelog each day the data changes. */
+  autoBackup: boolean;
+  /** Anime titles as AniList lists them (romaji) or in English, where there is one. */
+  titles: 'romaji' | 'english';
+  /** Which library tab lists anime films: Anime, Movies, or both. */
+  animeFilms: 'anime' | 'movies' | 'both';
+  /** Library sort, per tab. */
+  sort: Record<Kind, Sort>;
 };
 
 export type Route =
@@ -93,12 +163,17 @@ export type Route =
   /** An anime group, found by any of its members. */
   | { s: 'agroup'; id: number }
   | { s: 'settings' }
-  | { s: 'stats' };
+  | { s: 'stats' }
+  | { s: 'diary' }
+  | { s: 'tiers' }
+  | { s: 'tier'; id: string }
+  /** Adding titles to a tier list. */
+  | { s: 'tierpick'; id: string };
 
 export type Tab = Kind | 'settings';
 
 export type Sort = 'started' | 'recent' | 'rating' | 'title';
 export type Filter = { status: Status | 'all'; genre: string | null; sort: Sort };
 
-/** A search hit, normalised across TMDB, MyAnimeList and the offline catalogue. */
+/** A search hit, normalised across TMDB, AniList and the offline catalogue. */
 export type SearchHit = { id: number } & Partial<Meta> & { title: string };

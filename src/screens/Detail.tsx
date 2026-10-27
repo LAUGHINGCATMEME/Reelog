@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { TitleDetails, WatchSpan } from '../components/Details';
 import { Backdrop, BackBar, Genres, Icon, Poster, StatusChips, StatusText } from '../components/ui';
 import { fmtDate, fmtRuntime, fmtScore, plural } from '../lib/format';
 import {
-  avg, byEndDesc, dateLabel, entriesOf, epLabel, getMeta, libIds, nextEpisode, skey, statusOf, total, touchedSeasons, watched,
+  avg, byEndDesc, dateLabel, entriesOf, epLabel, getMeta, isFilm, libIds, nextEpisode, skey, statusOf, titleInfo, total, touchedSeasons, watched,
 } from '../lib/library';
 import { groupInfo, sectionOf, SECTIONS, type AnimeGroup, type Grouping, type Section } from '../lib/groups';
 import type { Data, EpEntry, EpKind, Kind, MovieEntry, Status } from '../lib/types';
@@ -13,15 +14,32 @@ const pct = (n: number, of: number) => (of ? `${Math.min(100, Math.round((n / of
 
 type Common = {
   data: Data;
+  tmdbKey: string;
   onBack: () => void;
   onGenre: (kind: Kind, genre: string) => void;
   onStatus: (key: string, s: Status) => void;
   onRemove: () => void;
 };
 
+/** Anime: the franchise group this one belongs to, when it has others. */
+export type PartOf = { title: string; n: number; onOpen: () => void };
+
+function PartOfLink({ title, n, onOpen }: PartOf) {
+  return (
+    <div className="pad-row" style={{ paddingTop: 14 }}>
+      <button className="part-of" onClick={onOpen}>
+        <Icon name="video_library" />
+        <span className="part-of-text">Part of <b>{title}</b></span>
+        <span className="part-of-n">{n}</span>
+        <Icon name="chevron_right" className="chev" />
+      </button>
+    </div>
+  );
+}
+
 // ---- Movie ----
 
-export function MovieDetail({ id, data, onBack, onGenre, onStatus, onRemove, onLog }: Common & { id: number; onLog: (entry?: MovieEntry) => void }) {
+export function MovieDetail({ id, data, tmdbKey, onBack, onGenre, onStatus, onRemove, onLog }: Common & { id: number; onLog: (entry?: MovieEntry) => void }) {
   const m = getMeta(data, 'movie', id);
   const es = (entriesOf(data, 'movie', id) as MovieEntry[]).sort(byEndDesc);
   const scores = es.flatMap((e) => (e.score != null ? [e.score] : []));
@@ -48,6 +66,7 @@ export function MovieDetail({ id, data, onBack, onGenre, onStatus, onRemove, onL
           <div className="stat"><span className="stat-label">AVG</span><span className="stat-value">{fmtScore(avg(scores))}</span></div>
           <div className="stat"><span className="stat-label">FIRST</span><span className="stat-value">{es.length ? es[es.length - 1].date.slice(0, 4) : '—'}</span></div>
         </div>
+        {es.length > 1 && <WatchSpan first={es[es.length - 1].date} last={es[0].date} />}
       </div>
       <div className="pad-row">
         <button className="btn btn--primary btn--block" onClick={() => onLog()}>
@@ -71,6 +90,84 @@ export function MovieDetail({ id, data, onBack, onGenre, onStatus, onRemove, onL
           </div>
         </>
       )}
+      <TitleDetails kind="movie" id={id} tmdbKey={tmdbKey} />
+      {inLib && (
+        <div className="center-row">
+          <button className="text-btn" onClick={onRemove}><Icon name="delete" />Remove from library</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Anime film (or a one-episode OVA or special) ----
+
+/**
+ * Logged like a movie, as dated watches. Its rating is the anime's own (as for any anime), so one
+ * imported or set before stays where it was.
+ */
+export function FilmDetail({ refId: ref, data, tmdbKey, partOf, onBack, onGenre, onStatus, onRemove, onLog, onRate }: Common & {
+  refId: number;
+  partOf?: PartOf;
+  onLog: (entry?: EpEntry) => void;
+  onRate: () => void;
+}) {
+  const m = getMeta(data, 'anime', ref);
+  const es = (entriesOf(data, 'anime', ref) as EpEntry[]).sort(byEndDesc);
+  const key = skey('anime', ref);
+  const r = data.rates[key];
+  const metaLine = [m.year, m.type, fmtRuntime(m.dur)].filter(Boolean).join(' · ');
+  const inLib = es.length > 0 || !!data.status[key] || r != null;
+  const first = es.reduce((a, e) => (e.start < a ? e.start : a), es[0]?.start ?? '');
+
+  return (
+    <div className="screen screen--detail">
+      <Backdrop src={m.img} />
+      <BackBar onBack={onBack} />
+      <div className="detail-head">
+        <Poster src={m.img} size="lg" />
+        <div className="detail-info">
+          <h2 className="h2">{m.title}</h2>
+          {metaLine && <div className="meta">{metaLine}</div>}
+          <Genres genres={m.genres} onPick={(g) => onGenre('anime', g)} />
+        </div>
+      </div>
+      {partOf && <PartOfLink {...partOf} />}
+      <StatusChips value={statusOf(data, 'anime', ref)} onChange={(s) => onStatus(key, s)} />
+      <div className="stat-card">
+        <div className="stat-grid">
+          <div className="stat"><span className="stat-label">WATCHES</span><span className="stat-value">{es.length}</span></div>
+          <button className="stat" onClick={onRate}>
+            <span className="stat-label">RATING<Icon name="edit" /></span>
+            <span className={'stat-value' + scoreClass(r)}>{fmtScore(r)}</span>
+          </button>
+          <div className="stat"><span className="stat-label">FIRST</span><span className="stat-value">{first ? first.slice(0, 4) : '—'}</span></div>
+        </div>
+        {es.length > 1 && <WatchSpan first={first} last={es[0].end} />}
+      </div>
+      <div className="pad-row">
+        <button className="btn btn--primary btn--block" onClick={() => onLog()}>
+          <Icon name="add" />{es.length ? 'Log another watch' : 'Log a watch'}
+        </button>
+      </div>
+      {!!es.length && (
+        <>
+          <div className="section-head"><span className="section-title">Watch history</span><span className="section-hint">tap to edit</span></div>
+          <div className="cards">
+            {es.map((e, i) => (
+              <button key={e.id} className="entry" onClick={() => onLog(e)}>
+                <div className="entry-body">
+                  <span className="entry-main">{dateLabel(e)}</span>
+                  <span className="entry-sub">Watch #{es.length - i}</span>
+                  {e.notes && <span className="entry-notes">{e.notes}</span>}
+                </div>
+                {e.score != null && <span className="entry-score">{fmtScore(e.score)}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <TitleDetails kind="anime" id={ref} tmdbKey={tmdbKey} title={m.title} />
       {inLib && (
         <div className="center-row">
           <button className="text-btn" onClick={onRemove}><Icon name="delete" />Remove from library</button>
@@ -82,14 +179,15 @@ export function MovieDetail({ id, data, onBack, onGenre, onStatus, onRemove, onL
 
 // ---- TV show ----
 
-export function ShowDetail({ id, data, loading, hasKey, onBack, onGenre, onRemove, onSeason }: Omit<Common, 'onStatus'> & {
+export function ShowDetail({ id, data, tmdbKey, loading, hasKey, onBack, onGenre, onRemove, onSeason }: Omit<Common, 'onStatus'> & {
   id: number; loading: boolean; hasKey: boolean; onSeason: (n: number) => void;
 }) {
   const m = getMeta(data, 'tv', id);
   const seasons = m.seasons?.length
     ? m.seasons
     : touchedSeasons(data, id).map((n) => ({ n, name: `Season ${n}`, episodes: 0, year: undefined }));
-  const metaLine = [m.year, m.seasons?.length && `${m.seasons.length} seasons`].filter(Boolean).join(' · ');
+  const metaLine = [m.year, m.seasons?.length && plural(m.seasons.length, 'season')].filter(Boolean).join(' · ');
+  const info = titleInfo(data, 'tv', id);
 
   return (
     <div className="screen screen--detail">
@@ -103,6 +201,7 @@ export function ShowDetail({ id, data, loading, hasKey, onBack, onGenre, onRemov
           <Genres genres={m.genres} onPick={(g) => onGenre('tv', g)} />
         </div>
       </div>
+      {!!info.first && <div className="stat-card"><WatchSpan first={info.first} last={info.last} /></div>}
       <div className="section-label" style={{ paddingTop: 26 }}>SEASONS</div>
       {loading && !m.seasons?.length && <div className="note">Loading seasons…</div>}
       {!loading && !m.seasons?.length && (
@@ -134,6 +233,7 @@ export function ShowDetail({ id, data, loading, hasKey, onBack, onGenre, onRemov
           );
         })}
       </div>
+      <TitleDetails kind="tv" id={id} tmdbKey={tmdbKey} />
       {libIds(data, 'tv').includes(id) && (
         <div className="center-row">
           <button className="text-btn" onClick={onRemove}><Icon name="delete" />Remove show</button>
@@ -145,10 +245,9 @@ export function ShowDetail({ id, data, loading, hasKey, onBack, onGenre, onRemov
 
 // ---- Episodes (a TV season or an anime) ----
 
-export function Episodes({ kind: K, refId: ref, season: sn, data, partOf, onBack, onGenre, onStatus, onRemove, onLog, onRate }: Common & {
+export function Episodes({ kind: K, refId: ref, season: sn, data, tmdbKey, partOf, onBack, onGenre, onStatus, onRemove, onLog, onRate }: Common & {
   kind: EpKind; refId: number; season?: number;
-  /** Anime: the group this one belongs to, when it has others. */
-  partOf?: { title: string; n: number; onOpen: () => void };
+  partOf?: PartOf;
   onLog: (entry?: EpEntry, ep?: number) => void;
   onRate: () => void;
 }) {
@@ -178,16 +277,7 @@ export function Episodes({ kind: K, refId: ref, season: sn, data, partOf, onBack
           {K === 'anime' && <Genres genres={m.genres} onPick={(g) => onGenre('anime', g)} />}
         </div>
       </div>
-      {partOf && (
-        <div className="pad-row" style={{ paddingTop: 14 }}>
-          <button className="part-of" onClick={partOf.onOpen}>
-            <Icon name="video_library" />
-            <span className="part-of-text">Part of <b>{partOf.title}</b></span>
-            <span className="part-of-n">{partOf.n}</span>
-            <Icon name="chevron_right" className="chev" />
-          </button>
-        </div>
-      )}
+      {partOf && <PartOfLink {...partOf} />}
       <StatusChips value={statusOf(data, K, ref, sn)} onChange={(s) => onStatus(key, s)} />
       <div className="stat-card">
         <div className="stat-grid">
@@ -199,6 +289,7 @@ export function Episodes({ kind: K, refId: ref, season: sn, data, partOf, onBack
           <div className="stat"><span className="stat-label">EP AVG</span><span className="stat-value">{fmtScore(epAvg)}</span></div>
         </div>
         <div className="stat-bar"><div style={{ width: pct(w.size, tot) }} /></div>
+        {!!es.length && <WatchSpan first={es.reduce((a, e) => (e.start < a ? e.start : a), es[0].start)} last={es[0].end} />}
       </div>
       <div className="pad-row">
         <button className="btn btn--primary btn--block" onClick={() => onLog()}>
@@ -232,6 +323,7 @@ export function Episodes({ kind: K, refId: ref, season: sn, data, partOf, onBack
           </div>
         </>
       )}
+      {K === 'anime' && <TitleDetails kind="anime" id={ref} tmdbKey={tmdbKey} title={m.title} />}
       {inLib && (
         <div className="center-row">
           <button className="text-btn" onClick={onRemove}><Icon name="delete" />{K === 'tv' ? 'Clear this season' : 'Remove from library'}</button>
@@ -243,10 +335,11 @@ export function Episodes({ kind: K, refId: ref, season: sn, data, partOf, onBack
 
 // ---- Anime group (a franchise's seasons, movies and OVAs) ----
 
-export function AnimeGroupDetail({ group: g, grouping, data, onBack, onGenre, onOpen, onSplit, onUnsplit, onUnmove, onMerge }: {
+export function AnimeGroupDetail({ group: g, grouping, data, tmdbKey, onBack, onGenre, onOpen, onSplit, onUnsplit, onUnmove, onMerge }: {
   group: AnimeGroup;
   grouping: Grouping;
   data: Data;
+  tmdbKey: string;
   onBack: () => void;
   onGenre: (kind: Kind, genre: string) => void;
   onOpen: (id: number) => void;
@@ -262,9 +355,9 @@ export function AnimeGroupDetail({ group: g, grouping, data, onBack, onGenre, on
   const info = groupInfo(data, g);
   const metas = new Map(g.ids.map((id) => [id, getMeta(data, 'anime', id)]));
   const eps = g.ids.reduce((n, id) => n + watched(data, 'anime', id).size, 0);
-  const tot = g.ids.reduce((n, id) => n + (metas.get(id)!.episodes ?? 0), 0);
+  const tot = g.ids.every((id) => metas.get(id)!.episodes) ? g.ids.reduce((n, id) => n + metas.get(id)!.episodes!, 0) : 0;
   const done = g.ids.filter((id) => statusOf(data, 'anime', id) === 'completed').length;
-  const looking = g.ids.some((id) => !metas.get(id)!.linked);
+  const looking = g.ids.some((id) => !metas.get(id)!.full);
   const moved = new Set(grouping.movedIn.get(g.key) ?? []);
   const splits = grouping.splitFrom.get(g.key) ?? [];
   const counts = SECTIONS.map((s) => [s, g.ids.filter((id) => sectionOf(metas.get(id)!) === s).length] as const).filter(([, n]) => n);
@@ -298,8 +391,9 @@ export function AnimeGroupDetail({ group: g, grouping, data, onBack, onGenre, on
           <div className="stat"><span className="stat-label">DONE</span><span className="stat-value">{done}/{g.ids.length}</span></div>
         </div>
         <div className="stat-bar"><div style={{ width: pct(eps, tot) }} /></div>
+        <WatchSpan first={info.first} last={info.last} />
       </div>
-      {looking && <div className="note" style={{ paddingTop: 14 }}>Looking up related seasons on MyAnimeList…</div>}
+      {looking && <div className="note" style={{ paddingTop: 14 }}>Looking up related seasons on AniList…</div>}
 
       {SECTIONS.map((sec) => {
         const ids = g.ids.filter((id) => sectionOf(metas.get(id)!) === sec);
@@ -313,16 +407,22 @@ export function AnimeGroupDetail({ group: g, grouping, data, onBack, onGenre, on
                 const w = watched(data, 'anime', id).size;
                 const st = statusOf(data, 'anime', id);
                 const r = data.rates[skey('anime', id)];
+                const film = isFilm(m);
+                const watches = film ? entriesOf(data, 'anime', id).length : 0;
                 const body = (
                   <>
                     <Poster src={m.img} size="sm" />
                     <div className="season-body">
                       <span className="season-name">{m.title}</span>
-                      <span className="season-sub">{[m.type, m.year, m.episodes && `${m.episodes} eps`].filter(Boolean).join(' · ')}</span>
-                      <div className="bar"><div style={{ width: pct(w, m.episodes ?? 0) }} /></div>
+                      <span className="season-sub">
+                        {[m.type, m.year, film ? fmtRuntime(m.dur) : m.episodes && `${m.episodes} eps`].filter(Boolean).join(' · ')}
+                      </span>
+                      {!film && <div className="bar"><div style={{ width: pct(w, m.episodes ?? 0) }} /></div>}
                       <div className="season-meta">
-                        <span>{m.episodes ? `${w}/${m.episodes}` : `${w} eps`}</span>
-                        {st ? <StatusText status={st} /> : <span className="disabled">Not started</span>}
+                        {film
+                          ? watches > 1 && <span>×{watches}</span>
+                          : <span>{m.episodes ? `${w}/${m.episodes}` : `${w} eps`}</span>}
+                        {st ? <StatusText status={st} /> : <span className="disabled">{film ? 'Not watched' : 'Not started'}</span>}
                         {moved.has(id) && <span className="disabled">Added by you</span>}
                       </div>
                     </div>
@@ -407,7 +507,8 @@ export function AnimeGroupDetail({ group: g, grouping, data, onBack, onGenre, on
           <Icon name={editing ? 'check' : 'edit'} />{editing ? 'Done' : 'Edit group'}
         </button>
       </div>
-      {!editing && <div className="time-note" style={{ textAlign: 'center', padding: '0 32px' }}>Grouped by MyAnimeList sequel and prequel links.</div>}
+      {!editing && <div className="time-note" style={{ textAlign: 'center', padding: '0 32px' }}>Grouped by AniList sequel, prequel and side-story links.</div>}
+      {!editing && <TitleDetails kind="anime" id={g.root} tmdbKey={tmdbKey} title={info.m.title} />}
     </div>
   );
 }

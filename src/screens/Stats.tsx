@@ -173,13 +173,14 @@ export function Stats({ data, onBack, onOpen }: { data: Data; onBack: () => void
 
   const epsOf = (x: TitleInfo) => x.es.filter(inPeriod).reduce((n, e) => n + eCount(e), 0);
   const mostWatched = titles
-    .filter((x) => x.kind !== 'movie')
+    .filter((x) => !x.film)
     .map((x) => ({ x, n: epsOf(x) }))
     .filter((y) => y.n > 0)
     .sort((a, b) => b.n - a.n)
     .slice(0, 5);
+  // Movies and anime films.
   const rewatched = titles
-    .filter((x) => x.kind === 'movie')
+    .filter((x) => x.film)
     .map((x) => ({ x, n: x.es.filter(inPeriod).length }))
     .filter((y) => y.n > 1)
     .sort((a, b) => b.n - a.n)
@@ -272,7 +273,7 @@ export function Stats({ data, onBack, onOpen }: { data: Data; onBack: () => void
       {!!rewatched.length && (
         <>
           <div className="chart-head"><span>MOST REWATCHED</span></div>
-          <TitleList items={rewatched.map(({ x, n }) => ({ x, right: `×${n}`, sub: [x.m.year, x.m.director].filter(Boolean).join(' · ') }))} onOpen={onOpen} />
+          <TitleList items={rewatched.map(({ x, n }) => ({ x, right: `×${n}`, sub: [x.kind === 'anime' ? 'Anime' : '', x.m.year, x.m.director].filter(Boolean).join(' · ') }))} onOpen={onOpen} />
         </>
       )}
 

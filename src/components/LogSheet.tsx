@@ -40,7 +40,7 @@ type Props = {
   meta: Meta;
   /** Episode count of the anime / season, 0 when unknown. */
   total: number;
-  /** Movie watches already logged, for the "LOG WATCH #n" kicker. */
+  /** Watches of the movie or anime film already logged, for the "LOG WATCH #n" kicker. */
   watches: number;
   ratingInput: Settings['rating'];
   patch: (p: Partial<SheetState>) => void;
@@ -169,6 +169,9 @@ export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch
               <Stepper label={isRange ? 'From' : 'Ep'} value={S.epFrom} max={total} onChange={(v) => setEp('epFrom', v)} />
               {isRange && <Stepper label="To" value={S.epTo} max={total} onChange={(v) => setEp('epTo', v)} />}
               {!!total && <span className="of-total">of {total}</span>}
+              {isRange && !!total && S.epTo !== String(total) && (
+                <button className="pill-btn pill-btn--sm" onClick={() => patch({ epTo: String(total) })}>To end</button>
+              )}
             </div>
           </>
         )}

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { BackBar, Icon, Poster, Skeletons, StatusText } from '../components/ui';
 import { searchAnime } from '../lib/anime';
 import { searchCatalog } from '../lib/catalog';
-import { entriesOf, getMeta, libIds, SMAP, statusOf, titleInfo } from '../lib/library';
+import { fmtRuntime } from '../lib/format';
+import { entriesOf, getMeta, isFilm, showTitle, SMAP, statusOf, titleInfo } from '../lib/library';
+import { findInLibrary } from '../lib/shelf';
 import { searchMovies, searchTv } from '../lib/tmdb';
 import type { Data, Kind, SearchHit, Settings } from '../lib/types';
 import { TAB } from './Library';
@@ -17,7 +19,7 @@ type Props = {
   data: Data;
   settings: Settings;
   onBack: () => void;
-  onOpen: (id: number) => void;
+  onOpen: (kind: Kind, id: number) => void;
   onPick: (hit: SearchHit) => void;
   onTogglePlan: (hit: SearchHit) => void;
 };
@@ -70,7 +72,7 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
         const res =
           K === 'movie' ? await searchMovies(settings.tmdbKey, q, ctrl.signal)
           : K === 'tv' ? await searchTv(settings.tmdbKey, q, ctrl.signal)
-          : await searchAnime(q, settings.malKey, ctrl.signal);
+          : await searchAnime(q, ctrl.signal);
         recent.set(`${K}|${q}`, res);
         if (recent.size > 20) recent.delete(recent.keys().next().value!);
         setResults(res);
@@ -83,16 +85,10 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
       ctrl.abort();
       window.clearTimeout(t);
     };
-  }, [q, K, online, settings.tmdbKey, settings.malKey, retry]);
+  }, [q, K, online, settings.tmdbKey, retry]);
 
-  const ql = q.toLowerCase();
-  const local = q
-    ? libIds(data, K)
-        .map((id) => titleInfo(data, K, id))
-        .filter((x) => x.m.title.toLowerCase().includes(ql) || (x.m.genres ?? []).some((g) => g.toLowerCase() === ql))
-        .slice(0, 6)
-    : [];
-  const source = K === 'anime' ? 'MYANIMELIST' : settings.tmdbKey ? 'TMDB' : 'BUILT-IN CATALOGUE';
+  const local = findInLibrary(data, K, settings.animeFilms, q).slice(0, 6);
+  const source = K === 'anime' ? 'ANILIST' : settings.tmdbKey ? 'TMDB' : 'BUILT-IN CATALOGUE';
 
   return (
     <div className="screen">
@@ -121,7 +117,7 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
         <div className="hint">
           {HINTS[K]}
           <div className="hint-sub">
-            {K === 'anime' ? 'Results from MyAnimeList' : settings.tmdbKey ? 'Results from TMDB' : 'Built-in catalogue · add a TMDB key in Settings for full search'}
+            {K === 'anime' ? 'Results from AniList' : settings.tmdbKey ? 'Results from TMDB' : 'Built-in catalogue · add a TMDB key in Settings for full search'}
           </div>
         </div>
       )}
@@ -131,7 +127,7 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
           <div className="section-label" style={{ paddingTop: 8 }}>IN YOUR LIBRARY</div>
           <div className="list list--flush">
             {local.map((x) => (
-              <button key={x.id} className="row-btn row-btn--compact" onClick={() => onOpen(x.id)}>
+              <button key={`${x.kind}:${x.id}`} className="row-btn row-btn--compact" onClick={() => onOpen(x.kind, x.id)}>
                 <Poster src={x.m.img} size="sm" />
                 <div className="row-body">
                   <div className="row-title row-title--sm">{x.m.title}</div>
@@ -152,7 +148,7 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
         <div className="empty empty--sm">
           <Icon name="cloud_off" />
           <div className="empty-body empty-body--wide">
-            {K === 'anime' ? "Couldn't reach MyAnimeList. Check your connection." : "Couldn't reach TMDB. Check your connection."}
+            {K === 'anime' ? "Couldn't reach AniList. Check your connection." : "Couldn't reach TMDB. Check your connection."}
           </div>
           <button className="text-btn text-btn--strong" onClick={() => setRetry((r) => r + 1)}><Icon name="refresh" />Try again</button>
         </div>
@@ -165,8 +161,9 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
             const m = getMeta(data, K, r.id);
             const img = r.img || m.img;
             const st = K === 'tv' ? titleInfo(data, 'tv', r.id).status : statusOf(data, K, r.id);
-            const watches = K === 'movie' ? entriesOf(data, 'movie', r.id).length : 0;
-            const sub = (K === 'anime' ? [r.year, r.episodes && `${r.episodes} eps`, r.type] : [r.year || m.year, K === 'movie' && m.director])
+            const film = K === 'anime' && isFilm(r);
+            const watches = K === 'movie' || film ? entriesOf(data, K, r.id).length : 0;
+            const sub = (K === 'anime' ? [r.year, film ? fmtRuntime(r.dur) : r.episodes && `${r.episodes} eps`, r.type] : [r.year || m.year, K === 'movie' && m.director])
               .filter(Boolean).join(' · ') || 'Year unknown';
             const planned = st === 'planned';
             return (
@@ -174,7 +171,7 @@ export function Search({ kind: K, query, onQuery: setQuery, data, settings, onBa
                 <button className="row-btn row-btn--compact" onClick={() => onPick(r)}>
                   <Poster src={img} size="sm" />
                   <div className="row-body">
-                    <div className="row-title row-title--sm">{r.title}</div>
+                    <div className="row-title row-title--sm">{showTitle(r)}</div>
                     <div className="row-sub">{sub}</div>
                     {st && (
                       <div className="row-tag" style={{ color: SMAP[st].color }}>

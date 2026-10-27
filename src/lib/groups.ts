@@ -1,10 +1,10 @@
-import { fmtDateLong } from './format';
 import { avg, byEndDesc, eEnd, eStart, getMeta, libIds, titleInfo, watched, type TitleInfo } from './library';
 import type { Data, Meta, Status } from './types';
 
 /*
- * Anime on MyAnimeList are one entry per season, movie or OVA. Reelog groups them into one
- * title by following sequel/prequel links, so a franchise reads like a TV show with seasons.
+ * Anime on AniList are one entry per season, movie or OVA. Reelog groups them into one title by
+ * following sequel, prequel and side-story links, so a franchise reads like a TV show with
+ * seasons, movies and OVAs. Entries you haven't added show up in the group too.
  * Data.animeGroups overrides the automatic grouping per id (see its doc in types.ts).
  */
 
@@ -31,12 +31,12 @@ export type Grouping = {
 export type Section = 'Series' | 'Movies' | 'OVAs & specials';
 export const SECTIONS: Section[] = ['Series', 'Movies', 'OVAs & specials'];
 export const sectionOf = (m: Meta): Section =>
-  !m.type || m.type === 'TV' || m.type === 'ONA' ? 'Series' : m.type === 'Movie' ? 'Movies' : 'OVAs & specials';
+  !m.type || m.type === 'TV' || m.type === 'TV Short' || m.type === 'ONA' ? 'Series' : m.type === 'Movie' ? 'Movies' : 'OVAs & specials';
 
 const startOf = (data: Data, id: number) => getMeta(data, 'anime', id).start || '9999';
 const byStart = (data: Data) => (a: number, b: number) => startOf(data, a).localeCompare(startOf(data, b)) || a - b;
 
-/** Every anime reachable from the library along sequel/prequel links (capped, in case of a runaway chain). */
+/** Every anime reachable from the library along group links (capped, in case of a runaway chain). */
 export function knownAnime(data: Data, limit = 1500): number[] {
   const seen = new Set(libIds(data, 'anime'));
   for (const [k, v] of Object.entries(data.animeGroups ?? {})) seen.add(+k).add(v);
@@ -58,7 +58,7 @@ export function groupAnime(data: Data, enabled: boolean): Grouping {
   const known = new Set(ids);
   const manual = enabled ? data.animeGroups ?? {} : {};
 
-  // Automatic groups: connected parts of the sequel/prequel graph (union–find).
+  // Automatic groups: connected parts of the link graph (union–find).
   const parent = new Map(ids.map((id) => [id, id]));
   const find = (x: number): number => {
     let r = x;
@@ -94,7 +94,7 @@ export function groupAnime(data: Data, enabled: boolean): Grouping {
     const inLib = sorted.filter((id) => lib.has(id));
     // Groups that only hold related titles you haven't touched stay out of the library.
     if (!inLib.length) continue;
-    const series = sorted.filter((id) => getMeta(data, 'anime', id).type === 'TV');
+    const series = sorted.filter((id) => ['TV', 'TV Short'].includes(getMeta(data, 'anime', id).type ?? ''));
     const g: AnimeGroup = { key, root: series[0] ?? sorted[0], ids: sorted, lib: inLib };
     groups.push(g);
     for (const id of sorted) of.set(id, g);
@@ -125,7 +125,8 @@ export function groupInfo(data: Data, g: AnimeGroup): TitleInfo {
   const es = infos.flatMap((x) => x.es).sort(byEndDesc);
   const statuses = infos.flatMap((x) => (x.status ? [x.status] : []));
   const eps = g.ids.reduce((n, id) => n + watched(data, 'anime', id).size, 0);
-  const tot = metas.reduce((n, m) => n + (m.episodes ?? 0), 0);
+  // An airing entry has no episode count yet, so the group's total isn't known either.
+  const tot = metas.every((m) => m.episodes) ? metas.reduce((n, m) => n + m.episodes!, 0) : 0;
   const years = metas.map((m) => m.year).filter(Boolean).sort();
   const span = years.length ? (years[0] === years[years.length - 1] ? years[0] : `${years[0]}–${years[years.length - 1]}`) : '';
   const last = es.length ? eEnd(es[0]) : '';
@@ -139,7 +140,8 @@ export function groupInfo(data: Data, g: AnimeGroup): TitleInfo {
     status: STATUS_PRIORITY.find((s) => statuses.includes(s)) ?? null,
     statuses,
     score: avg(infos.flatMap((x) => (x.score != null ? [x.score] : []))),
-    line: `${eps}/${tot || '?'} eps` + (last ? ` · ${fmtDateLong(last)}` : ''),
+    line: tot ? `${eps}/${tot} eps` : `${eps} eps`,
     sub: [span, `${g.ids.length} entries`].filter(Boolean).join(' · '),
+    film: false,
   };
 }
