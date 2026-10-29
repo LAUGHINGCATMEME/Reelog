@@ -3,7 +3,7 @@ import { BackBar, Chip, Icon, Menu, Overlay, Poster, Sheet, useBackLayer, type T
 import { fmtScore, plural } from '../lib/format';
 import { mkey, type TitleInfo } from '../lib/library';
 import { buzz, isNative, saveImage } from '../lib/native';
-import { tierImage } from '../lib/tierImage';
+import { tierImage, tierImageSize } from '../lib/tierImage';
 import {
   clearTiers, deleteTier, itemMeta, kindsLabel, listKeys, moveItem, newTierList, nextTier, placeOf, POOL, rankedCount,
   removeItem, shiftTier, TIER_COLORS, tierText, type Place,
@@ -153,9 +153,12 @@ async function copy(text: string) {
   }
 }
 
-export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete, toast, notify }: {
+export function TierEdit({ data, list, quality, onQuality, onBack, onUpdate, onAdd, onOpen, onDelete, toast, notify, onSelecting }: {
   data: Data;
   list: TierList;
+  /** Settings.shareQuality, set from the share sheet. */
+  quality: number;
+  onQuality: (q: number) => void;
   onBack: () => void;
   onUpdate: (f: (l: TierList) => TierList) => void;
   /** Opens the picker. */
@@ -164,10 +167,13 @@ export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete
   onDelete: () => void;
   toast: (text: string, warn?: boolean, action?: ToastAction) => void;
   notify: (title: string, body: string) => void;
+  /** Told while a poster is selected, so toasts can sit above the selection bar. */
+  onSelecting: (on: boolean) => void;
 }) {
   const [sel, setSel] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [rename, setRename] = useState({ open: false, name: '' });
   const [tierSheet, setTierSheet] = useState({ open: false, id: '' });
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -184,6 +190,11 @@ export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete
   live.current = { list, onUpdate };
 
   useBackLayer(!!sel, () => setSel(null));
+  const selecting = !!sel;
+  useEffect(() => {
+    onSelecting(selecting);
+    return () => onSelecting(false);
+  }, [selecting, onSelecting]);
 
   const total = listKeys(list).length;
   const rows = [...list.tiers.map((t) => ({ id: t.id, label: t.label, color: t.color as string | undefined, items: t.items })), { id: POOL, label: 'Unranked', color: undefined, items: list.pool }];
@@ -365,15 +376,18 @@ export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete
     toast(text, false, { label: 'Undo', onClick: () => onUpdate(() => before) });
   };
 
+  const openShare = () => (rankedCount(list) ? setSharing(true) : notify('Nothing ranked yet', 'Place some titles in tiers first.'));
+  const size = tierImageSize(list, quality);
   const shareImage = async () => {
-    if (!rankedCount(list)) return notify('Nothing ranked yet', 'Place some titles in tiers first.');
     setBusy(true);
     try {
-      const url = await tierImage(data, list);
-      const file = `reelog-${list.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'tier-list'}.png`;
+      const url = await tierImage(data, list, quality);
+      const ext = url.startsWith('data:image/png') ? 'png' : 'jpg';
+      const file = `reelog-${list.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'tier-list'}.${ext}`;
+      setSharing(false);
       if ((await saveImage(file, url)) && !isNative) toast(`Saved ${file}`);
     } catch {
-      notify("Couldn't make the image", 'Try again in a moment.');
+      notify("Couldn't make the image", quality > 6 ? 'It may be too big for this phone: try a lower quality.' : 'Try again in a moment.');
     }
     setBusy(false);
   };
@@ -391,7 +405,7 @@ export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete
         onBack={onBack}
         actions={
           <>
-            <button className="icon-btn" aria-label="Share as image" disabled={busy} onClick={shareImage}>
+            <button className="icon-btn" aria-label="Share as image" disabled={busy} onClick={openShare}>
               <Icon name={busy ? 'hourglass_empty' : 'share'} />
             </button>
             <div className="menu-anchor">
@@ -500,6 +514,36 @@ export function TierEdit({ data, list, onBack, onUpdate, onAdd, onOpen, onDelete
           </div>
         </Overlay>
       )}
+
+      <Sheet open={sharing} onClose={() => !busy && setSharing(false)} label="Share as image">
+        <div className="sheet-head">
+          <div className="row-body">
+            <span className="kicker">SHARE AS IMAGE</span>
+            <span className="sheet-title">{list.name}</span>
+            <span className="row-sub">{rankedCount(list)} ranked</span>
+          </div>
+          <button className="icon-btn" aria-label="Close" disabled={busy} onClick={() => setSharing(false)}><Icon name="close" /></button>
+        </div>
+        <div className="label-row">
+          <span className="label">Quality</span>
+          <span className="quality-n">{quality === 10 ? 'Best' : `${quality}/10`}</span>
+        </div>
+        <div className="slider">
+          <input
+            type="range" min={1} max={10} step={1} value={quality} aria-label="Image quality" disabled={busy}
+            onChange={(e) => onQuality(parseInt(e.target.value, 10))}
+          />
+          <div className="ticks"><span>Smaller file</span><span>Sharpest</span></div>
+        </div>
+        <div className="small-hint">
+          {size.width} × {size.height} px · {size.png ? 'PNG, lossless, at the posters’ full resolution' : `JPEG at ${Math.round(size.jpeg * 100)}%`}
+        </div>
+        <div className="sheet-actions">
+          <button className="btn btn--primary" disabled={busy} onClick={shareImage}>
+            <Icon name={busy ? 'hourglass_empty' : 'share'} />{busy ? 'Making the image…' : isNative ? 'Share' : 'Save image'}
+          </button>
+        </div>
+      </Sheet>
 
       <Sheet open={rename.open} onClose={() => setRename((r) => ({ ...r, open: false }))} label="Rename tier list">
         <div className="sheet-head">

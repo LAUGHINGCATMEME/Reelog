@@ -20,6 +20,11 @@ export const DEFAULT_SETTINGS: Settings = {
   titles: 'english',
   animeFilms: 'anime',
   sort: { movie: 'recent', tv: 'recent', anime: 'recent' },
+  tapHalf: 'down',
+  publicScores: true,
+  rewatchShades: false,
+  groupEps: 'off',
+  shareQuality: 6,
 };
 
 let uid = Date.now();
@@ -64,6 +69,7 @@ const isStatus = (v: unknown): v is Status => STATUSES.has(v as Status);
 const isScore = (v: unknown): v is number => scoreOf(v) != null;
 const isId = (v: unknown): v is number => isInt(v);
 const isObj = (v: unknown): v is Partial<Meta> => !!v && typeof v === 'object';
+const isNote = (v: unknown): v is string => typeof v === 'string' && !!v;
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 const KINDS: Kind[] = ['movie', 'tv', 'anime'];
@@ -104,6 +110,9 @@ const CHOICES: Partial<Record<keyof Settings, readonly unknown[]>> = {
   theme: ['system', 'black', 'oled', 'white'],
   titles: ['romaji', 'english'],
   animeFilms: ['anime', 'movies', 'both'],
+  tapHalf: ['down', 'up'],
+  groupEps: ['off', 'continuous', 'seasons'],
+  shareQuality: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 };
 const SORTS: readonly unknown[] = ['started', 'recent', 'rating', 'title'];
 
@@ -169,6 +178,9 @@ function readData(d: Record<string, unknown>, malAnime: boolean): Data {
     meta: readMap(d.meta, isObj),
     status: readMap(d.status, isStatus),
     rates: readMap(d.rates, isScore),
+    notes: readMap(d.notes, isNote),
+    groupRates: readMap(d.groupRates, isScore),
+    groupNotes: readMap(d.groupNotes, isNote),
     animeGroups: readMap(d.animeGroups, isId),
     tierLists: readTierLists(d.tierLists),
   };
@@ -238,11 +250,14 @@ export const useSettings = () => usePersisted(SETTINGS_KEY, loadSettings);
 export const BACKUP_VERSION = 4;
 
 /** Settings that travel with a backup. API keys never do. */
-const PORTABLE: (keyof Settings)[] = ['layout', 'rating', 'groupAnime', 'theme', 'autoBackup', 'titles', 'animeFilms', 'sort'];
+const PORTABLE: (keyof Settings)[] = [
+  'layout', 'rating', 'groupAnime', 'theme', 'autoBackup', 'titles', 'animeFilms', 'sort',
+  'tapHalf', 'publicScores', 'rewatchShades', 'groupEps', 'shareQuality',
+];
 
 /** The one backup file: everything in the log, plus display settings. See docs/BACKUP.md. */
 export function backupJson(data: Data, settings: Settings) {
-  const { entries, status, rates, animeGroups, legacyMal, tierLists, meta } = data;
+  const { entries, status, rates, notes, groupRates, groupNotes, animeGroups, legacyMal, tierLists, meta } = data;
   return JSON.stringify(
     {
       app: 'reelog',
@@ -253,6 +268,9 @@ export function backupJson(data: Data, settings: Settings) {
       entries,
       status,
       rates,
+      notes: notes ?? {},
+      groupRates: groupRates ?? {},
+      groupNotes: groupNotes ?? {},
       animeGroups: animeGroups ?? {},
       tierLists: tierLists ?? [],
       ...(legacyMal ? { legacyMal } : {}),
@@ -291,7 +309,7 @@ export const entrySig = (e: Entry) =>
     ? `movie|${e.ref}|${e.date}`
     : `${e.kind}|${e.ref}|${e.kind === 'tv' ? e.season : ''}|${e.epFrom}|${e.epTo}|${e.start}|${e.end}`;
 
-/** `b` merged into `a`: new entries and tier lists added, `a` wins on statuses, ratings and grouping. */
+/** `b` merged into `a`: new entries and tier lists added, `a` wins on statuses, ratings, notes and grouping. */
 export function mergeData(a: Data, b: Data): { data: Data; added: number } {
   const lists = new Set((a.tierLists ?? []).map((l) => l.id));
   const seen = new Set(a.entries.map(entrySig));
@@ -311,6 +329,9 @@ export function mergeData(a: Data, b: Data): { data: Data; added: number } {
       meta: { ...b.meta, ...a.meta },
       status: { ...b.status, ...a.status },
       rates: { ...b.rates, ...a.rates },
+      notes: { ...b.notes, ...a.notes },
+      groupRates: { ...b.groupRates, ...a.groupRates },
+      groupNotes: { ...b.groupNotes, ...a.groupNotes },
       animeGroups: { ...b.animeGroups, ...a.animeGroups },
       tierLists: [...(a.tierLists ?? []), ...(b.tierLists ?? []).filter((l) => !lists.has(l.id))],
       ...(legacy ? { legacyMal: legacy } : {}),

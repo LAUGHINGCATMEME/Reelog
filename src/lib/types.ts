@@ -95,6 +95,14 @@ export type Data = {
   status: Record<string, Status>;
   /** Title ratings, same keys as status (TV seasons, anime). Movies are rated per watch. */
   rates: Record<string, number>;
+  /** Title notes, same keys as rates. Notes on a watch are on its entry. */
+  notes?: Record<string, string>;
+  /**
+   * An anime group's own rating and notes, apart from its members' in rates and notes. Groups
+   * have no id of their own, so these are keyed by a member's AniList id (see groupKey).
+   */
+  groupRates?: Record<string, number>;
+  groupNotes?: Record<string, string>;
   /**
    * Manual anime grouping, by AniList id. Anime group automatically along sequel/prequel and
    * side-story links; an id here instead joins the group of the id it points to, or stands alone
@@ -152,6 +160,16 @@ export type Settings = {
   animeFilms: 'anime' | 'movies' | 'both';
   /** Library sort, per tab. */
   sort: Record<Kind, Sort>;
+  /** Tap rating: tapping the score you have again takes half a point off it, or adds one. */
+  tapHalf: 'down' | 'up';
+  /** AniList and TMDB scores on title pages. */
+  publicScores: boolean;
+  /** Episodes watched more than once are a darker red, the more the darker. */
+  rewatchShades: boolean;
+  /** An anime group's page lists all its episodes: numbered on from season to season, or per season. */
+  groupEps: 'off' | 'continuous' | 'seasons';
+  /** Shared tier list images, 1 (smallest file) to 10 (full poster resolution, lossless). */
+  shareQuality: number;
 };
 
 export type Route =

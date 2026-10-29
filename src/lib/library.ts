@@ -81,6 +81,16 @@ export function watched(data: Data, kind: Kind, ref: number, season?: number): S
   return s;
 }
 
+/** How many times each episode was watched: a rewatch counts again. */
+export function watchCounts(data: Data, kind: Kind, ref: number, season?: number): Map<number, number> {
+  const c = new Map<number, number>();
+  for (const e of entriesOf(data, kind, ref, season)) {
+    if (!isEp(e)) continue;
+    for (let i = e.epFrom; i <= e.epTo && i - e.epFrom < 5000; i++) c.set(i, (c.get(i) ?? 0) + 1);
+  }
+  return c;
+}
+
 /** Episode count of an anime or a TV season, or 0 when unknown. */
 export function total(data: Data, kind: Kind, ref: number, season?: number): number {
   const m = getMeta(data, kind, ref);
@@ -115,22 +125,25 @@ export function statusAfterLog(data: Data, e: NewEntry): Status | null {
   return next === prev ? null : next;
 }
 
-/** Every title of a kind that has entries, a status or a rating. */
+/** Keys of every title with a status, a rating or notes. */
+const titleKeys = (data: Data) => [...Object.keys(data.status), ...Object.keys(data.rates), ...Object.keys(data.notes ?? {})];
+
+/** Every title of a kind that has entries, a status, a rating or notes. */
 export function libIds(data: Data, kind: Kind): number[] {
   const ids = new Set<number>();
   for (const e of data.entries) if (e.kind === kind) ids.add(e.ref);
-  for (const k of [...Object.keys(data.status), ...Object.keys(data.rates)]) {
+  for (const k of titleKeys(data)) {
     const p = k.split(':');
     if (p[0] === kind) ids.add(+p[1]);
   }
   return [...ids];
 }
 
-/** Season numbers of a show that have entries, a status or a rating. */
+/** Season numbers of a show that have entries, a status, a rating or notes. */
 export function touchedSeasons(data: Data, id: number): number[] {
   const ns = new Set<number>();
   for (const e of entriesOf(data, 'tv', id)) ns.add((e as EpEntry).season ?? 1);
-  for (const k of [...Object.keys(data.status), ...Object.keys(data.rates)]) {
+  for (const k of titleKeys(data)) {
     if (k.startsWith(`tv:${id}:`)) ns.add(+k.split(':')[2]);
   }
   return [...ns].sort((a, b) => a - b);

@@ -42,6 +42,11 @@
   /* Tonal crimson for selected states that shouldn't shout. */
   --accent-soft: rgba(177, 18, 38, .2);
   --accent-line: rgba(229, 72, 92, .5);
+  /* Episodes watched 2, 3 and 4+ times (Settings → Rewatch shading): darker the more. */
+  --shade-2: #780A19;
+  --shade-3: #4C0610;
+  --shade-4: #2A0307;
+  --shade-line: rgba(229, 72, 92, .45);
   --glow: rgba(177, 18, 38, .16);
   --ease: cubic-bezier(.2, .8, .2, 1);
   --positive: #7AA252;
@@ -400,6 +405,7 @@ button.stat:hover { background: var(--surface-2); }
 .stat-label { font: 500 10px var(--mono); color: var(--text-muted); letter-spacing: .06em; display: flex; align-items: center; gap: 4px; }
 .stat-label .ms { font-size: 12px; }
 .stat-value { font: 700 20px var(--mono); }
+.stat-sub { font: 500 10px var(--mono); color: var(--text-muted); letter-spacing: .04em; }
 
 /* First / last watched */
 .span-row { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border); }
@@ -449,7 +455,13 @@ button.stat:hover { background: var(--surface-2); }
 .entry-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .entry-main { font: 700 14px var(--mono); }
 .entry-sub { font: 500 11px var(--mono); color: var(--text-muted); }
-.entry-notes { margin-top: 2px; font: 400 14px/1.4 var(--sans); text-wrap: pretty; overflow-wrap: anywhere; }
+.entry-notes { margin-top: 2px; font: 400 14px/1.4 var(--sans); text-wrap: pretty; overflow-wrap: anywhere; white-space: pre-wrap; }
+.title-note {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+  color: var(--text); display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer;
+}
+.title-note:hover { background: var(--surface-2); }
+.title-note-text { font: 400 14px/1.45 var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
 .entry-score { flex: none; font: 700 18px var(--mono); }
 
 .season {
@@ -484,6 +496,18 @@ button.stat:hover { background: var(--surface-2); }
   color: var(--text-muted); font: 600 12px var(--mono); cursor: pointer; padding: 0;
 }
 .ep-n[data-on='true'] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.ep-n[data-shade='2'], .ep-swatch[data-shade='2'] { background: var(--shade-2); border-color: var(--shade-line); }
+.ep-n[data-shade='3'], .ep-swatch[data-shade='3'] { background: var(--shade-3); border-color: var(--shade-line); }
+.ep-n[data-shade='4'], .ep-swatch[data-shade='4'] { background: var(--shade-4); border-color: var(--shade-line); }
+.shade-key { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 16px 0; font: 500 10px var(--mono); color: var(--text-muted); }
+.shade-key-item { display: inline-flex; align-items: center; gap: 4px; }
+.ep-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--accent); background: var(--accent); }
+.ep-ranges { padding: 0 16px 10px; }
+.ep-season + .ep-season { margin-top: 14px; }
+.ep-season-head { display: flex; align-items: baseline; gap: 8px; padding: 0 16px 8px; }
+.ep-season-n { flex: none; font: 700 12px var(--mono); color: var(--accent-text); }
+.ep-season-title { flex: 1; min-width: 0; font: 500 13px var(--sans); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-season-count { flex: none; font: 500 11px var(--mono); color: var(--text-disabled); }
 
 /* ---------- Settings ---------- */
 .card { margin: 0 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); overflow: hidden; }
@@ -598,7 +622,7 @@ a.menu-btn:hover { color: var(--text); }
 .diary-day { flex: none; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .diary-day b { font: 700 17px/1 var(--mono); }
 .diary-day span { font: 500 9px var(--mono); letter-spacing: .06em; color: var(--text-muted); text-transform: uppercase; }
-.diary-notes { font: italic 400 12px/1.35 var(--sans); color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.diary-notes { font: italic 400 12px/1.35 var(--sans); color: var(--text-muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* ---------- Tier lists ---------- */
 .tl-card {
@@ -747,6 +771,10 @@ a.menu-btn:hover { color: var(--text); }
   transition: transform .3s cubic-bezier(.2, .8, .2, 1), visibility 0s .3s;
 }
 .sheet[data-on='true'] { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+/* Room above and below a field scrolled into view over the keyboard. */
+.sheet input, .sheet textarea { scroll-margin: 16px 0 24px; }
+/* While the keyboard is up, the nav bar and the add button would sit on top of it. */
+:root[data-kb] .nav, :root[data-kb] .fab { display: none; }
 .grabber { width: 36px; height: 4px; border-radius: 2px; background: var(--border); margin: 0 auto 18px; }
 .sheet-head { display: flex; gap: 14px; align-items: center; }
 .sheet-head .kicker { letter-spacing: .04em; }
@@ -817,6 +845,7 @@ a.menu-btn:hover { color: var(--text); }
 .seg-n[data-fill='full'] { background: var(--accent); color: var(--on-accent); }
 .seg-n[data-fill='half'] { background: linear-gradient(90deg, var(--accent) 50%, var(--surface-2) 50%); color: var(--on-accent); }
 .small-hint { margin-top: 6px; font: 400 11px var(--sans); color: var(--text-disabled); }
+.quality-n { font: 700 15px var(--mono); }
 .dim { opacity: .35; }
 textarea.notes {
   margin-top: 8px; width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);

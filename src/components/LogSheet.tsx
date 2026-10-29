@@ -11,6 +11,8 @@ export type SheetState = {
   mode: 'movie' | 'eps' | 'rate';
   kind: Kind;
   ref: number;
+  /** Rate mode: rating the anime group `ref` belongs to as a whole, not `ref` itself. */
+  group: boolean;
   season?: number;
   entryId: string | null;
   epMode: 'single' | 'range';
@@ -28,7 +30,7 @@ export type SheetState = {
 export function blankSheet(p: Partial<SheetState> & Pick<SheetState, 'mode' | 'kind' | 'ref'>): SheetState {
   const t = todayIso();
   return {
-    open: true, entryId: null, epMode: 'single', epFrom: '1', epTo: '1',
+    open: true, group: false, entryId: null, epMode: 'single', epFrom: '1', epTo: '1',
     start: t, startText: fmtDate(t), end: t, endText: fmtDate(t),
     score: DEFAULT_SCORE, hasScore: false, notes: '',
     ...p,
@@ -42,7 +44,10 @@ type Props = {
   total: number;
   /** Watches of the movie or anime film already logged, for the "LOG WATCH #n" kicker. */
   watches: number;
+  /** Rate mode for a group: how many entries it has. */
+  groupSize: number;
   ratingInput: Settings['rating'];
+  tapHalf: Settings['tapHalf'];
   patch: (p: Partial<SheetState>) => void;
   onClose: () => void;
   onSave: () => void;
@@ -107,7 +112,7 @@ function Stepper({ label, value, max, onChange }: { label: string; value: string
   );
 }
 
-export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch, onClose, onSave, onDelete }: Props) {
+export function LogSheet({ sheet: S, meta: m, total, watches, groupSize, ratingInput, tapHalf, patch, onClose, onSave, onDelete }: Props) {
   const today = todayIso();
   const yday = yesterdayIso();
   const isEps = S.mode === 'eps';
@@ -123,9 +128,11 @@ export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch
   const kicker = S.entryId
     ? 'EDIT ENTRY'
     : S.mode === 'rate'
-      ? S.kind === 'tv' ? 'RATE SEASON' : 'RATE'
+      ? S.group ? 'RATE THE WHOLE GROUP' : S.kind === 'tv' ? 'RATE SEASON' : 'RATE'
       : isEps ? 'LOG EPISODES' : watches > 0 ? `LOG WATCH #${watches + 1}` : 'LOG A WATCH';
-  const sub = S.kind === 'tv'
+  const sub = S.group
+    ? `All ${groupSize} entries, as one`
+    : S.kind === 'tv'
     ? season?.name ?? `Season ${S.season}`
     : [m.year, S.kind === 'movie' ? m.director : m.type].filter(Boolean).join(' · ') || 'Year unknown';
 
@@ -134,6 +141,12 @@ export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch
     const n = parseInt(v, 10);
     if (field === 'epFrom' && isRange && n > (parseInt(S.epTo, 10) || 0)) p.epTo = v;
     patch(p);
+  };
+
+  // Tapping the score you have again moves it half a point: down (6 → 5.5) or up (6 → 6.5).
+  const tap = (n: number) => {
+    const again = S.hasScore && S.score === n;
+    patch({ score: again ? (tapHalf === 'up' ? Math.min(10, n + 0.5) : n - 0.5) : n, hasScore: true });
   };
 
   return (
@@ -213,7 +226,7 @@ export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch
 
         <div className="label-row">
           <span className="label">
-            {S.mode === 'rate' ? (S.kind === 'tv' ? 'Season rating' : 'Your rating') : isEps ? 'Episode rating · optional' : 'Rating'}
+            {S.mode === 'rate' ? (S.group ? 'Group rating' : S.kind === 'tv' ? 'Season rating' : 'Your rating') : isEps ? 'Episode rating · optional' : 'Rating'}
           </span>
           <button className="toggle" aria-pressed={!S.hasScore} onClick={() => patch({ hasScore: !S.hasScore })}>
             <Icon name={S.hasScore ? 'check_box_outline_blank' : 'check_box'} />
@@ -243,33 +256,30 @@ export function LogSheet({ sheet: S, meta: m, total, watches, ratingInput, patch
                 return (
                   <button
                     key={n} className="seg-n" data-fill={fill} aria-label={String(n)}
-                    onClick={() => patch({ score: on && S.score === n ? n - 0.5 : n, hasScore: true })}
+                    onClick={() => tap(n)}
                   >
                     {n}
                   </button>
                 );
               })}
             </div>
-            <div className="small-hint">Tap again for a half point.</div>
+            <div className="small-hint">{tapHalf === 'up' ? 'Tap again for half a point more.' : 'Tap again for half a point less.'}</div>
           </>
         )}
 
-        {S.mode !== 'rate' && (
-          <>
-            <div className="label">Notes <span className="label-opt">· optional</span></div>
-            <textarea
-              className="notes" rows={3} value={S.notes} placeholder="Where, with whom, what stuck with you"
-              onChange={(e) => patch({ notes: e.target.value })}
-            />
-          </>
-        )}
+        <div className="label">Notes <span className="label-opt">· optional</span></div>
+        <textarea
+          className="notes" rows={3} value={S.notes}
+          placeholder={S.mode === 'rate' ? (S.group ? 'What you think of it as a whole' : 'What you think of it') : 'Where, with whom, what stuck with you'}
+          onChange={(e) => patch({ notes: e.target.value })}
+        />
 
         <div className="sheet-actions">
           {S.entryId && (
             <button className="btn btn--secondary" onClick={onDelete}><Icon name="delete" />Delete</button>
           )}
           <button className="btn btn--primary" onClick={onSave}>
-            {S.mode === 'rate' ? 'Save rating' : S.entryId ? 'Save changes' : 'Save entry'}
+            {S.mode === 'rate' ? 'Save' : S.entryId ? 'Save changes' : 'Save entry'}
           </button>
         </div>
       </div>

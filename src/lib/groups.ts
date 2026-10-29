@@ -15,7 +15,7 @@ export type AnimeGroup = {
   root: number;
   /** Every known member, oldest first. */
   ids: number[];
-  /** Members that are in the library (have entries, a status or a rating). */
+  /** Members that are in the library (have entries, a status, a rating or notes). */
   lib: number[];
 };
 
@@ -116,6 +116,16 @@ export function groupAnime(data: Data, enabled: boolean): Grouping {
 
 const STATUS_PRIORITY: Status[] = ['watching', 'paused', 'planned', 'completed', 'dropped'];
 
+/**
+ * Where a group's own rating or notes are in `map` (Data.groupRates, Data.groupNotes): the member
+ * that has one, as the root can change when details load or the group is edited; else the root.
+ */
+export const groupKey = (map: Record<string, unknown> | undefined, g: AnimeGroup) =>
+  String(g.ids.find((id) => map?.[id] != null) ?? g.root);
+
+/** A group's own rating, or null. */
+export const groupRate = (data: Data, g: AnimeGroup): number | null => data.groupRates?.[groupKey(data.groupRates, g)] ?? null;
+
 /** Library row for a group; a group of one is just that anime. */
 export function groupInfo(data: Data, g: AnimeGroup): TitleInfo {
   if (g.ids.length === 1) return titleInfo(data, 'anime', g.root);
@@ -139,7 +149,8 @@ export function groupInfo(data: Data, g: AnimeGroup): TitleInfo {
     first: es.reduce((a, e) => (!a || eStart(e) < a ? eStart(e) : a), ''),
     status: STATUS_PRIORITY.find((s) => statuses.includes(s)) ?? null,
     statuses,
-    score: avg(infos.flatMap((x) => (x.score != null ? [x.score] : []))),
+    // Its own rating, else the average of its members'.
+    score: groupRate(data, g) ?? avg(infos.flatMap((x) => (x.score != null ? [x.score] : []))),
     line: tot ? `${eps}/${tot} eps` : `${eps} eps`,
     sub: [span, `${g.ids.length} entries`].filter(Boolean).join(' · '),
     film: false,

@@ -53,6 +53,40 @@ export async function saveImage(name: string, dataUrl: string): Promise<boolean>
   }
 }
 
+/**
+ * Keeps the field you're typing in above the on-screen keyboard. The keyboard shrinks the page
+ * (MainActivity does this in the Android app); once it has, the focused field is scrolled into
+ * view inside its sheet or page, and `data-kb` on <html> hides the nav bar and the add button
+ * while it's up, so they don't sit on top of it.
+ */
+export function watchKeyboard() {
+  let width = innerWidth;
+  let full = innerHeight;
+  const typing = () => {
+    const el = document.activeElement;
+    return el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !['range', 'date', 'file', 'checkbox', 'radio', 'button'].includes(el.type)) ? el : null;
+  };
+  const update = () => {
+    // A new width is a rotation or a resized window: start over from its height.
+    if (innerWidth !== width) {
+      width = innerWidth;
+      full = innerHeight;
+    }
+    full = Math.max(full, innerHeight);
+    const el = typing();
+    const up = !!el && innerHeight < full - 120;
+    document.documentElement.toggleAttribute('data-kb', up);
+    if (up) el!.scrollIntoView({ block: 'nearest' });
+  };
+  addEventListener('resize', update);
+  // The keyboard may already be up (moving from one field to the next), or still on its way.
+  addEventListener('focusin', () => {
+    update();
+    window.setTimeout(update, 350);
+  });
+  addEventListener('focusout', () => window.setTimeout(update, 0));
+}
+
 /** A short tick of haptic feedback, where the device has it. */
 export function buzz(ms = 8) {
   try {

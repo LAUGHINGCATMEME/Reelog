@@ -4,7 +4,7 @@ import { itemMeta, rankedCount } from './tiers';
 import type { Data, TierList } from './types';
 
 /*
- * A tier list drawn as a PNG to share: the tiers with their posters, in the current theme's
+ * A tier list drawn as an image to share: the tiers with their posters, in the current theme's
  * colours. Posters come from the saved copies in the Android app (same origin) or over CORS in
  * the browser; one that can't be drawn becomes a tile with its title.
  */
@@ -17,6 +17,41 @@ const GAP = 10;
 const INNER = 12;
 const PW = Math.floor((W - PAD * 2 - LABEL_W - INNER * 2 - GAP * (COLS - 1)) / COLS);
 const PH = Math.round(PW * 1.5);
+const HEAD = 150;
+
+/**
+ * Size and format for each Settings.shareQuality, 1 to 10: how many times the layout size it's
+ * drawn at, and the JPEG quality. 10 is lossless PNG at about the posters' own resolution
+ * (AniList's are ~460px wide, TMDB's 342px, against 112px in the layout); more adds nothing.
+ */
+const QUALITY: Record<number, { scale: number; jpeg: number | null }> = {
+  1: { scale: 1, jpeg: 0.7 },
+  2: { scale: 1.25, jpeg: 0.75 },
+  3: { scale: 1.5, jpeg: 0.8 },
+  4: { scale: 1.75, jpeg: 0.85 },
+  5: { scale: 2, jpeg: 0.88 },
+  6: { scale: 2, jpeg: 0.92 },
+  7: { scale: 2.5, jpeg: 0.92 },
+  8: { scale: 3, jpeg: 0.95 },
+  9: { scale: 3.5, jpeg: 0.97 },
+  10: { scale: 4, jpeg: null },
+};
+/** A canvas bigger than this fails on many phones; a long list is drawn smaller to fit. */
+const MAX_PIXELS = 32_000_000;
+
+/** A canvas this device can't make, or can't turn into an image. */
+class TooBig extends Error {}
+
+const rowH = (n: number) => Math.max(1, Math.ceil(n / COLS)) * (PH + GAP) - GAP + INNER * 2;
+const layoutHeight = (list: TierList) => PAD + HEAD + list.tiers.reduce((h, t) => h + rowH(t.items.length) + 8, 0) + PAD;
+
+/** The image `tierImage` makes of `list` at `quality`: its size in pixels and its format. */
+export function tierImageSize(list: TierList, quality: number) {
+  const q = QUALITY[quality] ?? QUALITY[6];
+  const height = layoutHeight(list);
+  const scale = Math.min(q.scale, Math.sqrt(MAX_PIXELS / (W * height)));
+  return { scale, width: Math.round(W * scale), height: Math.round(height * scale), png: q.jpeg == null, jpeg: q.jpeg ?? 1 };
+}
 
 /**
  * Loads an image for drawing. A poster from another site gets its own URL here: AniList only adds
@@ -78,8 +113,8 @@ function wrap(g: CanvasRenderingContext2D, text: string, width: number, max: num
   return lines;
 }
 
-/** Draws `list` and resolves to a PNG data URL. */
-export async function tierImage(data: Data, list: TierList): Promise<string> {
+/** Draws `list` at `quality` (Settings.shareQuality) and resolves to a JPEG or PNG data URL. */
+export async function tierImage(data: Data, list: TierList, quality: number): Promise<string> {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim();
   const C = { bg: v('--bg'), surface: v('--surface'), surface2: v('--surface-2'), border: v('--border'), text: v('--text'), muted: v('--text-muted'), accent: v('--accent-text') };
@@ -93,15 +128,17 @@ export async function tierImage(data: Data, list: TierList): Promise<string> {
     imgs.set(k, src ? await load(src) : null);
   }));
 
-  const rowH = (n: number) => Math.max(1, Math.ceil(n / COLS)) * (PH + GAP) - GAP + INNER * 2;
-  const HEAD = 150;
-  const height = PAD + HEAD + list.tiers.reduce((h, t) => h + rowH(t.items.length) + 8, 0) + PAD;
+  const height = layoutHeight(list);
+  const size = tierImageSize(list, quality);
 
-  const draw = (withImages: boolean) => {
+  const draw = (withImages: boolean, scale: number) => {
     const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = height;
-    const g = canvas.getContext('2d')!;
+    canvas.width = Math.round(W * scale);
+    canvas.height = Math.round(height * scale);
+    const g = canvas.getContext('2d');
+    if (!g) throw new TooBig();
+    g.scale(scale, scale);
+    g.imageSmoothingQuality = 'high';
     g.fillStyle = C.bg;
     g.fillRect(0, 0, W, height);
 
@@ -169,13 +206,24 @@ export async function tierImage(data: Data, list: TierList): Promise<string> {
       });
       y += h + 8;
     }
-    return canvas.toDataURL('image/png');
+    const url = size.png ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', size.jpeg);
+    // What a canvas too big for this device gives instead of an image.
+    if (url.length < 100) throw new TooBig();
+    return url;
   };
 
-  try {
-    return draw(true);
-  } catch {
-    // A poster that loaded without CORS taints the canvas: draw them all as title tiles instead.
-    return draw(false);
+  // Too big for this phone: try again at half the pixels, down to the smallest size.
+  for (let scale = size.scale; ; scale /= Math.SQRT2) {
+    try {
+      try {
+        return draw(true, scale);
+      } catch (e) {
+        if (e instanceof TooBig) throw e;
+        // A poster that loaded without CORS taints the canvas: draw them all as title tiles instead.
+        return draw(false, scale);
+      }
+    } catch (e) {
+      if (!(e instanceof TooBig) || scale <= 1) throw e;
+    }
   }
 }

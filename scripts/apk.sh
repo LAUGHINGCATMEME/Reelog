@@ -21,6 +21,7 @@ else
   (cd android && ./gradlew assembleDebug --console=plain -q)
   src=android/app/build/outputs/apk/debug/app-debug.apk
 fi
-cp "$src" ./Reelog.apk
+# Only the newest build is kept in the folder.
+rm -f ./Reelog*.apk
 cp "$src" "./Reelog-$version.apk"
 echo "APK ready: $(pwd)/Reelog-$version.apk"

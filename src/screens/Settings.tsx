@@ -66,6 +66,7 @@ const OK = 'var(--positive)';
 const WARN = 'var(--warning)';
 const THEMES: [Theme, string][] = [['system', 'System'], ['black', 'Black'], ['oled', 'OLED'], ['white', 'White']];
 const FILMS: [SettingsT['animeFilms'], string][] = [['anime', 'Anime'], ['movies', 'Movies'], ['both', 'Both']];
+const GROUP_EPS: [SettingsT['groupEps'], string][] = [['off', 'Off'], ['continuous', 'Continuous'], ['seasons', 'By season']];
 
 export function Settings(p: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -175,7 +176,7 @@ export function Settings(p: Props) {
             <span className="tag" style={{ color: OK }}>EVERYTHING</span>
           </div>
           <div className="card-body">
-            One .json file with every entry, status, rating, anime group and tier list, plus your display settings. API keys are never included.
+            One .json file with every entry, status, rating, note, anime group and tier list, plus your display settings. API keys are never included.
           </div>
         </div>
         <div className="card-actions">
@@ -230,6 +231,46 @@ export function Settings(p: Props) {
             ))}
           </div>
         </div>
+        {p.settings.rating === 'tap' && (
+          <>
+            <div className="divider" />
+            <div className="setting">
+              <div className="setting-text">
+                <span className="setting-label">Tapping again</span>
+                <span className="setting-sub">Tap 6 twice for {p.settings.tapHalf === 'up' ? '6.5' : '5.5'}</span>
+              </div>
+              <div className="seg">
+                {(['down', 'up'] as const).map((v) => (
+                  <Chip key={v} className="chip--wide" on={p.settings.tapHalf === v} onClick={() => p.onSettings({ tapHalf: v })}>{v === 'down' ? '−0.5' : '+0.5'}</Chip>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        <div className="divider" />
+        <div className="setting">
+          <div className="setting-text">
+            <span className="setting-label">Public ratings</span>
+            <span className="setting-sub">AniList and TMDB scores on title pages</span>
+          </div>
+          <div className="seg">
+            {([true, false] as const).map((v) => (
+              <Chip key={String(v)} className="chip--wide" on={p.settings.publicScores === v} onClick={() => p.onSettings({ publicScores: v })}>{v ? 'Show' : 'Hide'}</Chip>
+            ))}
+          </div>
+        </div>
+        <div className="divider" />
+        <div className="setting">
+          <div className="setting-text">
+            <span className="setting-label">Rewatch shading</span>
+            <span className="setting-sub">Episodes watched more often are a darker red</span>
+          </div>
+          <div className="seg">
+            {([true, false] as const).map((v) => (
+              <Chip key={String(v)} className="chip--wide" on={p.settings.rewatchShades === v} onClick={() => p.onSettings({ rewatchShades: v })}>{v ? 'On' : 'Off'}</Chip>
+            ))}
+          </div>
+        </div>
         <div className="divider" />
         <div className="setting">
           <div className="setting-text">
@@ -242,6 +283,28 @@ export function Settings(p: Props) {
             ))}
           </div>
         </div>
+        {p.settings.groupAnime && (
+          <>
+            <div className="divider" />
+            <div className="setting setting--stack">
+              <div className="setting-text">
+                <span className="setting-label">All episodes on a group</span>
+                <span className="setting-sub">
+                  {p.settings.groupEps === 'continuous'
+                    ? 'One run of numbers through every season'
+                    : p.settings.groupEps === 'seasons'
+                      ? 'Each season numbered from 1, under S1, S2…'
+                      : "Every season's episodes on the group's page"}
+                </span>
+              </div>
+              <div className="seg seg--fill">
+                {GROUP_EPS.map(([v, label]) => (
+                  <Chip key={v} className="chip--wide" on={p.settings.groupEps === v} onClick={() => p.onSettings({ groupEps: v })}>{label}</Chip>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <div className="divider" />
         <div className="setting">
           <div className="setting-text">

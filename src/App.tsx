@@ -5,7 +5,7 @@ import {
 } from './components/ui';
 import { clearDetails } from './lib/details';
 import { useEnricher } from './lib/enrich';
-import { groupAnime, knownAnime, type AnimeGroup } from './lib/groups';
+import { groupAnime, groupKey, groupRate, knownAnime, type AnimeGroup } from './lib/groups';
 import { fmtDate, parseDate, plural, todayIso } from './lib/format';
 import {
   clean, dateLabel, entriesOf, epLabel, epShort, getMeta, isEp, isFilm, libIds, mkey, nextEpisode, setEnglishTitles, showTitle, skey, SMAP,
@@ -56,6 +56,8 @@ function readLastBackup(): (NonNullable<LastBackup> & { sig: string }) | null {
 
 export default function App() {
   const [toast, showToast, hideToast] = useToast();
+  // A tier list's selection bar sits where toasts do: they go above it while it's up.
+  const [tierSel, setTierSel] = useState(false);
   // Saving fails only when storage is full; say so instead of losing changes on the next launch.
   const warnedFull = useRef(false);
   const [data, setData] = useData(() => {
@@ -111,6 +113,21 @@ export default function App() {
       .catch(() => { converting.current = false; });
   }, [data.legacyMal]);
 
+  // Anime films logged as episodes before 1.1.0 can have a rating on a watch, where nothing can
+  // change it now: a film's rating is the anime's own. It moves there, or goes if there's one.
+  useEffect(() => {
+    if (!data.entries.some((e) => e.kind === 'anime' && e.score != null && isFilm(getMeta(data, 'anime', e.ref)))) return;
+    setData((d) => {
+      const rates = { ...d.rates };
+      const entries = d.entries.map((e) => {
+        if (e.kind !== 'anime' || e.score == null || !isFilm(getMeta(d, 'anime', e.ref))) return e;
+        rates[skey('anime', e.ref)] ??= e.score;
+        return { ...e, score: null };
+      });
+      return { ...d, entries, rates };
+    });
+  }, [data.entries, data.meta]);
+
   // ---- Theme ----
   const [systemLight, setSystemLight] = useState(() => matchMedia('(prefers-color-scheme: light)').matches);
   useEffect(() => {
@@ -165,7 +182,7 @@ export default function App() {
 
   const grouping = useMemo(
     () => groupAnime(data, settings.groupAnime),
-    [data.meta, data.entries, data.status, data.rates, data.animeGroups, settings.groupAnime],
+    [data.meta, data.entries, data.status, data.rates, data.notes, data.animeGroups, settings.groupAnime],
   );
   const groups = settings.groupAnime ? grouping.groups : undefined;
 
@@ -311,10 +328,10 @@ export default function App() {
       ? { title: h.title, titleEn: h.titleEn, year: h.year, img: h.img, episodes: h.episodes, genres: h.genres, type: h.type, dur: h.dur, start: h.start, idMal: h.idMal }
       : { title: h.title, year: h.year, img: h.img };
   const filmOf = (kind: Kind, ref: number) => kind === 'anime' && isFilm(getMeta(data, 'anime', ref));
-  /** Sets or (with null) clears a title rating. */
-  const withRate = (rates: Record<string, number>, key: string, v: number | null) => {
+  /** Sets or (with null or '') clears a title rating or note. */
+  const withRate = <T,>(rates: Record<string, T> | undefined, key: string, v: T | null) => {
     const r = { ...rates };
-    if (v == null) delete r[key];
+    if (v == null || v === '') delete r[key];
     else r[key] = v;
     return r;
   };
@@ -355,8 +372,15 @@ export default function App() {
   };
 
   const rate = (kind: EpKind, ref: number, season?: number) => {
-    const v = data.rates[skey(kind, ref, season)];
-    setSheet(blankSheet({ mode: 'rate', kind, ref, season, score: v ?? DEFAULT_SCORE, hasScore: v != null }));
+    const key = skey(kind, ref, season);
+    const v = data.rates[key];
+    setSheet(blankSheet({ mode: 'rate', kind, ref, season, score: v ?? DEFAULT_SCORE, hasScore: v != null, notes: data.notes?.[key] ?? '' }));
+  };
+  /** An anime group's own rating and notes. The sheet shows the group's root. */
+  const rateGroup = (g: AnimeGroup) => {
+    const v = groupRate(data, g);
+    const notes = data.groupNotes?.[groupKey(data.groupNotes, g)] ?? '';
+    setSheet(blankSheet({ mode: 'rate', kind: 'anime', ref: g.root, group: true, score: v ?? DEFAULT_SCORE, hasScore: v != null, notes }));
   };
 
   const saveSheet = () => {
@@ -367,14 +391,27 @@ export default function App() {
     const film = s.mode === 'movie' && s.kind === 'anime';
 
     if (s.mode === 'rate') {
+      const notes = s.notes.trim();
+      const g = s.group ? grouping.of.get(s.ref) : undefined;
+      if (s.group && !g) return closeSheet();
       setData((d) => {
+        if (g) {
+          // Kept on the root; a copy left on another member (from before the root changed) goes.
+          const strip = <T,>(o: Record<string, T> | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => !g.ids.includes(+k)));
+          const at = String(g.root);
+          return {
+            ...d,
+            groupRates: withRate(strip(d.groupRates), at, s.hasScore ? s.score : null),
+            groupNotes: withRate(strip(d.groupNotes), at, notes),
+          };
+        }
         const status = { ...d.status };
         // Rating something you haven't logged means you've seen it.
         if (s.hasScore && !status[key] && !entriesOf(d, s.kind, s.ref, s.season).length) status[key] = 'completed';
-        return { ...d, rates: withRate(d.rates, key, s.hasScore ? s.score : null), status };
+        return { ...d, rates: withRate(d.rates, key, s.hasScore ? s.score : null), notes: withRate(d.notes, key, notes), status };
       });
       closeSheet();
-      showToast(s.hasScore ? 'Rating saved' : 'Rating cleared');
+      showToast(s.hasScore ? 'Rating saved' : notes ? 'Notes saved' : 'Rating cleared');
       return;
     }
 
@@ -398,7 +435,8 @@ export default function App() {
       const old = data.entries.find((x): x is EpEntry => x.id === s.entryId && isEp(x));
       // Left on the same day, a watch logged over several days keeps its start.
       const start = old && old.end === a ? old.start : a;
-      val = { kind: 'anime', ref: s.ref, epFrom: old?.epFrom ?? 1, epTo: old?.epTo ?? 1, start, end: a, score: old?.score ?? null, notes };
+      // The rating is the anime's (below), not the watch's.
+      val = { kind: 'anime', ref: s.ref, epFrom: old?.epFrom ?? 1, epTo: old?.epTo ?? 1, start, end: a, score: null, notes };
     } else {
       const tot = total(data, s.kind, s.ref, s.season);
       const f = parseInt(s.epFrom, 10);
@@ -485,12 +523,13 @@ export default function App() {
     const n = entriesOf(data, kind, ref, season).length;
     const match = (k: string) => (kind === 'tv' && season == null ? k.startsWith(`tv:${ref}:`) : k === skey(kind, ref, season));
     const strip = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !match(k)));
-    confirm(`Remove ${label}?`, `This deletes ${plural(n, 'entry', 'entries')}, the status and rating. It can't be undone.`, 'Remove', () => {
+    confirm(`Remove ${label}?`, `This deletes ${plural(n, 'entry', 'entries')}, the status, rating and notes. It can't be undone.`, 'Remove', () => {
       setData((d) => ({
         ...d,
         entries: d.entries.filter((e) => !(e.kind === kind && e.ref === ref && (kind !== 'tv' || season == null || (e as EpEntry).season === season))),
         status: strip(d.status),
         rates: strip(d.rates),
+        notes: strip(d.notes ?? {}),
       }));
       showToast(`Removed ${label}`);
       back();
@@ -660,6 +699,7 @@ export default function App() {
                 id={route.id}
                 data={data}
                 tmdbKey={settings.tmdbKey}
+                publicScores={settings.publicScores}
                 onBack={back}
                 onGenre={genreGo}
                 onStatus={statusChange}
@@ -672,6 +712,7 @@ export default function App() {
                 id={route.id}
                 data={data}
                 tmdbKey={settings.tmdbKey}
+                publicScores={settings.publicScores}
                 loading={loading.has(mkey('tv', route.id))}
                 hasKey={!!settings.tmdbKey}
                 onBack={back}
@@ -690,9 +731,14 @@ export default function App() {
                   grouping={grouping}
                   data={data}
                   tmdbKey={settings.tmdbKey}
+                  publicScores={settings.publicScores}
+                  shades={settings.rewatchShades}
+                  groupEps={settings.groupEps}
                   onBack={back}
                   onGenre={genreGo}
                   onOpen={(id) => openTitle('anime', id)}
+                  onRate={() => rateGroup(g)}
+                  onLogEp={(id, ep) => logEps('anime', id, undefined, undefined, ep)}
                   onSplit={(id) => splitAnime(g, id)}
                   onUnsplit={resetAnime}
                   onUnmove={resetAnime}
@@ -710,6 +756,7 @@ export default function App() {
               const common = {
                 data,
                 tmdbKey: settings.tmdbKey,
+                publicScores: settings.publicScores,
                 partOf: r.kind === 'anime' ? partOf(r.ref) : undefined,
                 onBack: back,
                 onGenre: genreGo,
@@ -719,7 +766,7 @@ export default function App() {
               };
               return filmOf(r.kind, r.ref)
                 ? <FilmDetail refId={r.ref} {...common} onLog={(e) => logFilm(r.ref, e)} />
-                : <Episodes kind={r.kind} refId={r.ref} season={r.season} {...common} onLog={(e, ep) => logEps(r.kind, r.ref, r.season, e, ep)} />;
+                : <Episodes kind={r.kind} refId={r.ref} season={r.season} shades={settings.rewatchShades} {...common} onLog={(e, ep) => logEps(r.kind, r.ref, r.season, e, ep)} />;
             })()}
             {route.s === 'settings' && (
               <Settings
@@ -751,6 +798,8 @@ export default function App() {
                 <TierEdit
                   data={data}
                   list={l}
+                  quality={settings.shareQuality}
+                  onQuality={(q) => setSettings((x) => ({ ...x, shareQuality: q }))}
                   onBack={back}
                   onUpdate={(f) => updateList(l.id, f)}
                   onAdd={() => go({ s: 'tierpick', id: l.id })}
@@ -759,6 +808,7 @@ export default function App() {
                   onDelete={() => deleteList(l)}
                   toast={showToast}
                   notify={info}
+                  onSelecting={setTierSel}
                 />
               );
             })()}
@@ -787,7 +837,7 @@ export default function App() {
           </button>
         )}
 
-        <Toast state={toast} high={route.s === 'lib'} onAction={hideToast} />
+        <Toast state={toast} high={route.s === 'lib' || (route.s === 'tier' && tierSel)} onAction={hideToast} />
         <NavBar current={navTab} onGo={(t) => tabGo(t)} />
 
         <LogSheet
@@ -795,7 +845,9 @@ export default function App() {
           meta={sheetMeta}
           total={sheet.mode === 'movie' ? 0 : total(data, sheet.kind, sheet.ref, sheet.season)}
           watches={sheet.mode === 'movie' ? entriesOf(data, sheet.kind, sheet.ref).length : 0}
+          groupSize={sheet.group ? grouping.of.get(sheet.ref)?.ids.length ?? 0 : 0}
           ratingInput={settings.rating}
+          tapHalf={settings.tapHalf}
           patch={patchSheet}
           onClose={closeSheet}
           onSave={saveSheet}

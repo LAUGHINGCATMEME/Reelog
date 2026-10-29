@@ -8,15 +8,19 @@ The file is JSON:
 {
   "app": "reelog",
   "version": 4,
-  "appVersion": "1.1.0",
+  "appVersion": "1.2.0",
   "exported": "2026-10-27T17:10:26.176Z",
   "settings": {
     "layout": "list", "rating": "slider", "groupAnime": true, "theme": "black", "autoBackup": true,
-    "titles": "english", "animeFilms": "anime", "sort": { "movie": "recent", "tv": "recent", "anime": "recent" }
+    "titles": "english", "animeFilms": "anime", "sort": { "movie": "recent", "tv": "recent", "anime": "recent" },
+    "tapHalf": "down", "publicScores": true, "rewatchShades": false, "groupEps": "off", "shareQuality": 6
   },
   "entries": [],
   "status": {},
   "rates": {},
+  "notes": {},
+  "groupRates": {},
+  "groupNotes": {},
   "animeGroups": {},
   "tierLists": [],
   "meta": {}
@@ -59,7 +63,7 @@ Field rules:
 - `epTo`: optional, defaults to `epFrom`. Must be ≥ `epFrom`.
 - `end`: optional, defaults to `start`. Must be on or after `start`.
 - `season`: TV only, defaults to `1`. `0` is Specials.
-- An anime movie is one episode: `"epFrom": 1, "epTo": 1`. Each watch of it is one such entry, and its rating goes in `rates` like any anime's.
+- An anime movie is one episode: `"epFrom": 1, "epTo": 1`. Each watch of it is one such entry, and its rating goes in `rates` like any anime's. A `score` on one of its watches is moved to `rates` (or dropped, if `rates` has one).
 - Rewatches are just more entries. The same episodes or movie can appear any number of times.
 
 Entries that break these rules are skipped on import, and the restore dialog says how many.
@@ -85,6 +89,22 @@ Title ratings, `0`–`10` in steps of `0.5`. Same keys as `status`. Anime and TV
 
 ```json
 { "anime:16498": 9, "tv:1396:1": 9.5 }
+```
+
+## `notes`
+
+Your notes on a title rather than on one watch: an anime or a TV season. Same keys as `rates`. Line breaks are kept.
+
+```json
+{ "anime:16498": "The basement reveal.\nRewatch before S4." }
+```
+
+## `groupRates`, `groupNotes`
+
+A whole anime group's own rating and notes, apart from its members' in `rates` and `notes`. Keyed by the AniList id of a member of the group (Reelog uses its first TV series); with no group rating, the library shows the average of the members'.
+
+```json
+{ "16498": 9.5 }
 ```
 
 ## `animeGroups`
@@ -132,6 +152,11 @@ Display settings; API keys are never in a backup.
 | `titles` | `english`, `romaji`: how anime titles are shown |
 | `animeFilms` | `anime`, `movies`, `both`: which tab lists anime films |
 | `sort` | per tab (`movie`, `tv`, `anime`): `started`, `recent`, `rating`, `title` |
+| `tapHalf` | `down`, `up`: tap rating, tapping the same number again gives half a point less or more |
+| `publicScores` | `true`, `false`: AniList and TMDB scores on title pages |
+| `rewatchShades` | `true`, `false`: episodes watched more often are a darker red |
+| `groupEps` | `off`, `continuous`, `seasons`: all of an anime group's episodes on its page |
+| `shareQuality` | `1`–`10`: tier list images, `10` is lossless PNG |
 
 ## Older files
 

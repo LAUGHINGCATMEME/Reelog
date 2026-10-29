@@ -34,9 +34,10 @@ function airDate(at: string) {
 
 /**
  * Overview, facts, cast and crew of a title: what TMDB or AniList has to say about it. `title` is
- * the one shown above, left out of an anime's English and Romaji titles.
+ * the one shown above, left out of an anime's English and Romaji titles. `score` shows the
+ * AniList or TMDB score (Settings → Public ratings).
  */
-export function TitleDetails({ kind, id, tmdbKey, title }: { kind: Kind; id: number; tmdbKey: string; title?: string }) {
+export function TitleDetails({ kind, id, tmdbKey, title, score }: { kind: Kind; id: number; tmdbKey: string; title?: string; score: boolean }) {
   const { d, loading } = useDetails(kind, id, tmdbKey);
   const [more, setMore] = useState(false);
   if (!d) {
@@ -48,7 +49,7 @@ export function TitleDetails({ kind, id, tmdbKey, title }: { kind: Kind; id: num
   }
   const long = (d.overview?.length ?? 0) > 280;
   const shown = d.facts.filter(([k, v]) => !((k === 'English' || k === 'Romaji') && v === title));
-  const facts = d.score ? [...shown, [kind === 'anime' ? 'AniList score' : 'TMDB score', `${fmtScore(d.score)} / 10`] as [string, string]] : shown;
+  const facts = score && d.score ? [...shown, [kind === 'anime' ? 'AniList score' : 'TMDB score', `${fmtScore(d.score)} / 10`] as [string, string]] : shown;
   return (
     <>
       {(d.overview || d.tagline || d.next) && (

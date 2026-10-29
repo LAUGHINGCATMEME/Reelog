@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { CrashGuard } from './components/Crash';
-import { isNative } from './lib/native';
+import { isNative, watchKeyboard } from './lib/native';
 import { postersReady } from './lib/posters';
 
 // Apply the saved theme before the first frame, so a light theme doesn't flash dark.
@@ -25,6 +25,8 @@ void Promise.race([postersReady, new Promise((r) => setTimeout(r, 1500))]).then(
     </StrictMode>,
   ),
 );
+
+watchKeyboard();
 
 // Ask the browser not to evict the log under storage pressure.
 navigator.storage?.persist?.().catch(() => {});
