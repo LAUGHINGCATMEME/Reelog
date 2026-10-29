@@ -8,7 +8,7 @@ This was a personal project, which I used to see what claude can do, and damn I 
 
 to use it, download the apk form the releases, and put in the TMDB api key in settings, its free.
 TMDB fetches data for Movies  and TV seasons, and AniList (no key needed) for Anime. 
-again, this was a side project, wont likely be maintained since I already am happy with all its capabilities. I'll let claude take over now.
+again, this was a side project, Ill try to update it whenever I face any bugs. I'll let claude take over now.
 
 
 ---
